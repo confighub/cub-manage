@@ -1,0 +1,57 @@
+// Copyright (C) ConfigHub, Inc.
+// SPDX-License-Identifier: MIT
+
+package cli
+
+// The observability profile library. The library machinery -- the Space, the
+// stored Invocations, the parameter binding, and the install/list/apply and
+// fleet-edit commands -- is managerkit/profiles. What is observability-specific
+// is which profiles are seeded and what the help text calls them.
+
+import (
+	"github.com/spf13/cobra"
+
+	api "github.com/confighub/sdk/core/function/api"
+	"github.com/confighub/sdk/managerkit/profiles"
+
+	"github.com/confighub/cub-manage/internal/cub"
+	"github.com/confighub/cub-manage/internal/kit"
+)
+
+// workloadKindsWhereData scopes fleet-edit to pod-bearing workload Units, so a
+// profile that operates on containers never reaches an unrelated Unit.
+const workloadKindsWhereData = "kind IN ('Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob', 'Pod')"
+
+// otelSidecarValue is the sidecar container set-path writes; the container name
+// is injected from the path's merge key, and the image is a profile parameter.
+const otelSidecarValue = "image: {{ .Params.image }}\nports:\n- name: otlp-grpc\n  containerPort: 4317\n"
+
+// Library is this command group's profile library. Its profiles are installed
+// with every other group's by the top-level 'profile install'.
+var Library = profiles.Library{
+	Tool:           "cub-manage",
+	Target:         "a workload",
+	ParamExample:   "--param image=otel/opentelemetry-collector:0.100 for otel-sidecar",
+	Preflight:      cub.Preflight,
+	InvocationName: kit.RootName,
+	FleetEdit: profiles.FleetEdit{
+		WhereData: workloadKindsWhereData,
+		Scope:     "pod-bearing workload kinds",
+		Example:   `fleet-edit --profile otel-sidecar --environment prod --param image=otel/opentelemetry-collector:0.100 --commit --change-desc "…"`,
+	},
+	Profiles: []profiles.Spec{
+		{
+			Slug:        "otel-sidecar",
+			Description: "set-path: inject/replace an otel-collector sidecar container (param: image)",
+			Function:    "set-path",
+			Args: []api.FunctionArgument{
+				profiles.Arg("path", "spec.template.spec.containers.?name=otel-collector"),
+				{ParameterName: "value", Value: otelSidecarValue, Evaluator: api.EvaluatorTemplate},
+			},
+			Params:        []profiles.Param{{Name: "image"}},
+			WhereResource: cub.WhereResourceTypes(cub.PodTemplateResourceTypes...),
+		},
+	},
+}
+
+func newFleetEditCmd() *cobra.Command { return Library.FleetEditCommand() }
