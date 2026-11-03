@@ -1,0 +1,6 @@
+/bin/
+# Anchored to the repository root so these ignore a stray `go build` binary but
+# not the cmd/cub-manage/ source directory.
+/cub-manage
+/cub-manage-*
+.DS_Store
