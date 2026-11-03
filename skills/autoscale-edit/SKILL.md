@@ -10,7 +10,7 @@ allowed-tools: Bash(cub manage autoscale --help) Bash(cub manage autoscale * --h
 Set how workloads autoscale — as data, dry-run by default. One HPA, an HPA→KEDA conversion, or a profile across a `--where` selector.
 
 - **`set-hpa <space>/<unit> [--min N] [--max N] [--cpu PCT] [--memory PCT]`** — edit an HPA's replica bounds and/or cpu/memory utilization targets.
-- **`convert-keda <space>/<unit>`** — rewrite an HPA as an equivalent KEDA ScaledObject (preserves min/max and cpu/memory metrics). Runs the `convert-hpa-to-keda` function in an **embedded executor in-process** — no server-side function, no worker.
+- **`convert-keda <space>/<unit>`** — rewrite an HPA as an equivalent KEDA ScaledObject (preserves min/max and cpu/memory metrics). Runs the `convert-hpa-to-keda` function in an **embedded executor in-process** — no server-side function.
 - **`cub manage profile install | list | apply`** — the autoscaling profile library (stored Invocations): `hpa-conservative` (cpu 60%), `hpa-aggressive` (cpu 85%), and parameterized `hpa-range` (`--param min=… --param max=…`).
 - **`fleet-edit --profile <slug> [--where …]`** — apply a profile across a selector of autoscaler Units in one operation.
 

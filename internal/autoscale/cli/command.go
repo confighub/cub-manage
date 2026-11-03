@@ -28,8 +28,8 @@ PodDisruptionBudget that blocks every eviction at an autoscaler's minimum
 scale), edits to an HPA's bounds and targets, and converting an HPA to a KEDA
 ScaledObject.
 
-'convert-keda' runs the convert-hpa-to-keda function in-process, so it needs no
-worker. Authoring the PodDisruptionBudget itself is 'cub manage workload
+'convert-keda' runs the convert-hpa-to-keda function in-process rather than on
+the server. Authoring the PodDisruptionBudget itself is 'cub manage workload
 ensure-pdb'.
 
 ` + kit.DomainHelpFooter,
