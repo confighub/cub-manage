@@ -23,7 +23,7 @@ Report the autoscaling ConfigHub holds — HorizontalPodAutoscalers and KEDA Sca
 
 ## Do not load for
 
-- Autoscaling anti-patterns, ranked (pinned, no-autoscaler, PDB-vs-minReplicas) — use **autoscale-findings**.
+- Autoscaling anti-patterns, ranked (pinned, missing-autoscaler, PDB-vs-minReplicas) — use **autoscale-findings**.
 - Editing an HPA, converting HPA→KEDA, applying a profile — use **autoscale-edit**.
 - Live cluster state (current replica count, HPA status) — `kubectl`.
 
@@ -34,11 +34,11 @@ Report the autoscaling ConfigHub holds — HorizontalPodAutoscalers and KEDA Sca
 ## The toolkit
 
 - `cub manage autoscale snapshot -o table` — per-cluster HPA / ScaledObject / workload / autoscaled / PDB counts.
-- `cub manage autoscale list -o table` — per-autoscaler kind, scale target, min/max, and whether it's pinned.
+- `cub manage autoscale list -o table` — per-autoscaler kind, scale target, min/max, and whether it's pinned (`--kind HorizontalPodAutoscaler|ScaledObject`, `--cluster`, `--namespace`). JSON is an array of rows (`cluster`, `kind`, `name`, `namespace`, `space`, `unit`, plus `targetKind`, `targetName`, `min`, `max`, `pinned`).
 
 ### Scoping
 
-Server-side `--where` plus label shorthands (`--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant`), AND-only.
+Server-side `--where` plus `--component` (one Component's variant Spaces) and the label shorthands (`--environment`, `--region`, `--owner`, `--layer`, `--variant`), AND-only.
 
 ## Stop conditions
 

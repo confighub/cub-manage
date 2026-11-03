@@ -19,7 +19,7 @@
       "id": 3,
       "name": "annotate-coverage",
       "prompt": "Flag the uncovered workloads so they show up as warnings.",
-      "expected_output": "Previews then runs `cub manage netpol guardrails annotate --commit --change-desc ...`, writing the finding annotation the coverage Trigger reads; notes re-running clears stale annotations.",
+      "expected_output": "Previews then runs `cub manage netpol guardrails annotate --commit --change-desc ...`, writing the netpol.confighub.com/ingress-coverage annotation onto each workload Unit no ingress policy selects, which the netpol-ingress-coverage Trigger reads; notes re-running clears stale annotations.",
       "files": []
     },
     {

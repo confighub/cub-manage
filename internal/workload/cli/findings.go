@@ -4,13 +4,6 @@
 package cli
 
 import (
-	"fmt"
-	"strings"
-	"text/tabwriter"
-
-	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
-
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -19,37 +12,37 @@ import (
 	"github.com/confighub/cub-manage/internal/workload/snapshot"
 )
 
-type findingsReport struct {
-	Findings []workload.Finding `json:"findings"`
-	Totals   struct {
-		Findings int `json:"findings"`
-		High     int `json:"high"`
-		Medium   int `json:"medium"`
-		Low      int `json:"low"`
-	} `json:"totals"`
-	Filter string `json:"filter,omitempty"`
-}
+// analyzers are the analyzers findings runs, which --analyzer names.
+var analyzers = workload.AllChecks
 
 func newFindingsCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var severityFilter, analyzerFilter, clusterFilter, namespaceFilter string
+	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Severity-ranked workload-readiness findings across the fleet",
-		Long: `findings flattens the fleet readiness scorecard into a severity-ranked list —
-one finding per issue, most-severe first — spanning every analyzer (security,
-resources, probes, hygiene, availability).
+		Short: "Report workload readiness issues across the fleet, most severe first",
+		Long: `findings flattens the fleet readiness scorecard into one finding per failed
+check, most severe first. The analyzers are the checks, by scorecard dimension:
 
-Severity: a failing security / resources / availability check is high; a failing
-probe is medium; warnings are one step down; hygiene is low.
+  security      privileged-container, privilege-escalation-allowed,
+                missing-run-as-non-root, writable-root-filesystem,
+                capabilities-not-dropped, missing-seccomp-profile,
+                service-account-token-mounted
+  resources     missing-memory-limit, missing-cpu-limit, missing-memory-request,
+                missing-cpu-request
+  probes        missing-readiness-probe, missing-liveness-probe
+  hygiene       missing-termination-log-fallback
+  availability  missing-pdb, pdb-blocks-eviction, missing-spread
 
-Filter with --severity (Critical|High|Medium|Low), --analyzer (the dimension), --cluster,
-and --namespace.`,
+A failing security, resources or availability check is high, a failing probe is
+medium, a warning is one step lower, and hygiene is always low: privileged-container
+is high, writable-root-filesystem medium.
+
+Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			severity, err := kit.ParseScore(severityFilter)
-			if err != nil {
+			if err := only.Validate(); err != nil {
 				return err
 			}
 			client, err := cub.Preflight(cmd.Context())
@@ -64,66 +57,23 @@ and --namespace.`,
 			if err != nil {
 				return err
 			}
-			report := buildFindingsReport(snap, severity, analyzerFilter, clusterFilter, namespaceFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
-				return err
-			}
-			printFindingsTable(cmd, report)
-			return nil
+			return kit.RenderFindings(cmd, output, kit.NewFindingsReport(findings(snap), only, snap.Filter))
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&severityFilter, "severity", "", "only findings at this severity: Critical | High | Medium | Low")
-	cmd.Flags().StringVar(&analyzerFilter, "analyzer", "", "only findings from this analyzer: security | resources | probes | hygiene | availability")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
+	kit.AddFindingFlags(cmd, &only, analyzers...)
 	return cmd
 }
 
-func buildFindingsReport(snap *snapshot.Snapshot, severityFilter api.Score, analyzerFilter, clusterFilter, namespaceFilter string) findingsReport {
-	var report findingsReport
-	report.Filter = snap.Filter
+// findings is every readiness finding in the snapshot, in the shared form.
+func findings(snap *snapshot.Snapshot) []kit.Finding {
+	var out []kit.Finding
 	for _, f := range workload.Findings(snap.Clusters) {
-		if severityFilter != api.ScoreNone && f.Severity != severityFilter {
-			continue
-		}
-		if analyzerFilter != "" && f.Analyzer != analyzerFilter {
-			continue
-		}
-		if clusterFilter != "" && f.Cluster != clusterFilter {
-			continue
-		}
-		if namespaceFilter != "" && f.Namespace != namespaceFilter {
-			continue
-		}
-		report.Findings = append(report.Findings, f)
-		report.Totals.Findings++
-		switch f.Severity {
-		case api.ScoreHigh:
-			report.Totals.High++
-		case api.ScoreMedium:
-			report.Totals.Medium++
-		case api.ScoreLow:
-			report.Totals.Low++
-		}
+		out = append(out, kit.Finding{
+			Severity: f.Severity, Analyzer: f.Analyzer, Cluster: f.Cluster, Namespace: f.Namespace,
+			Kind: f.Kind, Name: f.Name, Space: f.Space, Unit: f.UnitSlug, Message: f.Message,
+		})
 	}
-	return report
-}
-
-func printFindingsTable(cmd *cobra.Command, r findingsReport) {
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEVERITY\tANALYZER\tCLUSTER\tNAMESPACE\tKIND\tNAME\tMESSAGE")
-	for _, f := range r.Findings {
-		ns := f.Namespace
-		if ns == "" {
-			ns = "-"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			strings.ToUpper(string(f.Severity)), f.Analyzer, f.Cluster, ns, f.Kind, f.Name, f.Message)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf(
-		"\n%d findings (%d high, %d medium, %d low)",
-		r.Totals.Findings, r.Totals.High, r.Totals.Medium, r.Totals.Low))
+	return out
 }

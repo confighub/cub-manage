@@ -25,7 +25,7 @@ func TestAnalyze_Wildcards(t *testing.T) {
 	findings := AnalyzeFleet(build([]FleetResource{
 		res("c1", clusterRole("legacy-admin", []any{ruleDoc([]string{"*"}, []string{"*"}, []string{"*"})})),
 	}))
-	wild := byAnalyzer(findings, "wildcard-rules")
+	wild := byAnalyzer(findings, "wildcard-rule")
 	if len(wild) != 1 {
 		t.Fatalf("got %d wildcard findings, want 1", len(wild))
 	}
@@ -43,7 +43,7 @@ func TestAnalyze_EscalationVerbs(t *testing.T) {
 			ruleDoc([]string{"rbac.authorization.k8s.io"}, []string{"clusterroles"}, []string{"bind", "escalate"}),
 		})),
 	}))
-	esc := byAnalyzer(findings, "privilege-escalation-verbs")
+	esc := byAnalyzer(findings, "privilege-escalation-verb")
 	if len(esc) != 1 {
 		t.Fatalf("got %d escalation findings, want 1", len(esc))
 	}
@@ -59,7 +59,7 @@ func TestAnalyze_RiskyGrants(t *testing.T) {
 			ruleDoc([]string{""}, []string{"pods/exec"}, []string{"create"}),
 		})),
 	}))
-	risky := byAnalyzer(findings, "risky-grants")
+	risky := byAnalyzer(findings, "risky-grant")
 	if len(risky) != 1 {
 		t.Fatalf("got %d risky findings, want 1", len(risky))
 	}
@@ -77,7 +77,7 @@ func TestAnalyze_ClusterAdminBindings(t *testing.T) {
 		res("c1", clusterRole("shadow-admin", []any{ruleDoc([]string{"*"}, []string{"*"}, []string{"*"})})),
 		res("c1", clusterRoleBinding("shadow", "shadow-admin", []any{user("bob")})),
 	}))
-	admin := byAnalyzer(findings, "cluster-admin-bindings")
+	admin := byAnalyzer(findings, "cluster-admin-binding")
 	var names []string
 	for _, f := range admin {
 		names = append(names, f.ResourceName)
@@ -94,7 +94,7 @@ func TestAnalyze_OrphanedBindingsNotBuiltins(t *testing.T) {
 		res("c1", clusterRoleBinding("ok-builtin", "view", []any{group("devs")})),
 		res("c1", clusterRoleBinding("ok-system", "system:metrics-reader", []any{group("devs")})),
 	}))
-	orphans := byAnalyzer(findings, "orphaned-bindings")
+	orphans := byAnalyzer(findings, "orphaned-binding")
 	if len(orphans) != 1 {
 		t.Fatalf("got %d orphan findings, want 1", len(orphans))
 	}
@@ -112,7 +112,7 @@ func TestAnalyze_UnboundServiceAccounts(t *testing.T) {
 		res("c1", serviceAccount("unused", "apps")),
 		res("c1", roleBinding("rb", "apps", RoleRef{Kind: "ClusterRole", Name: "edit"}, []any{sa("used", "apps")})),
 	}))
-	unbound := byAnalyzer(findings, "unbound-service-accounts")
+	unbound := byAnalyzer(findings, "unbound-service-account")
 	if len(unbound) != 1 {
 		t.Fatalf("got %d unbound findings, want 1", len(unbound))
 	}

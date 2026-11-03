@@ -19,7 +19,7 @@
       "id": 3,
       "name": "annotate-envelope-gaps",
       "prompt": "Flag the incomplete namespaces so they show up as warnings.",
-      "expected_output": "Previews then runs `cub manage namespace guardrails annotate --commit --change-desc ...`, writing the finding annotation onto each incomplete namespace's Namespace Unit that the envelope-finding Trigger reads; notes re-running after fixing config.",
+      "expected_output": "Previews then runs `cub manage namespace guardrails annotate --commit --change-desc ...`, writing the namespace.confighub.com/envelope-coverage annotation onto each incomplete namespace's Namespace Unit that the namespace-envelope-coverage Trigger reads; notes re-running after fixing config.",
       "files": []
     },
     {

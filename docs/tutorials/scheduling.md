@@ -55,10 +55,10 @@ general nodes:
 
 ```console
 $ cub manage scheduling findings -o table --cluster nsmgr-proto-m3
-SEVERITY  ANALYZER   CLUSTER         NAMESPACE  KIND        NAME  MESSAGE
-MEDIUM    placement  nsmgr-proto-m3  m3app      Deployment  web   tolerates taint(s) [nvidia.com/gpu] but has no nodeSelector or required node affinity — may schedule onto general nodes
+SEVERITY  ANALYZER                      CLUSTER         NAMESPACE  KIND        NAME  MESSAGE
+Medium    toleration-without-placement  nsmgr-proto-m3  m3app      Deployment  web   tolerates taint(s) [nvidia.com/gpu] but has no nodeSelector or required node affinity — may schedule onto general nodes
 
-1 findings (0 high, 1 medium, 0 low)
+1 finding: 1 medium
 ```
 
 ## 4. Fix it as data — with a profile
@@ -104,8 +104,7 @@ nsmgr-proto-m3  m3app      Deployment  web   pool=gpu      nvidia.com/gpu  none 
 1 workloads (1 constrained, 0 unconstrained)
 
 $ cub manage scheduling findings -o table --cluster nsmgr-proto-m3
-
-0 findings (0 high, 0 medium, 0 low)
+No findings.
 ```
 
 ## 6. Fleet-wide
@@ -125,7 +124,7 @@ this tool.
 ## 7. Enforce with guardrails
 
 `guardrails install` stands up a `Warn=true` `vet-cel` rule
-(`workload-toleration-needs-placement`) and wires in-scope Spaces to it. It's
+(`scheduling-toleration-needs-placement`) and wires in-scope Spaces to it. It's
 dry-run by default and conservative — it skips Spaces that already select Triggers
 their own way:
 
@@ -136,7 +135,7 @@ $ cub manage guardrails status -o table         # Units now carrying warnings
 ```
 
 Promote the rule to blocking later with
-`cub trigger update workload-toleration-needs-placement --space common --unwarn`.
+`cub trigger update scheduling-toleration-needs-placement --space common --unwarn`.
 
 ## Reference
 

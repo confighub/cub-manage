@@ -33,7 +33,7 @@ func newEnvelopeCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
 	var clusterFilter, namespaceFilter string
-	var incompleteOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "envelope",
 		Short: "Per-namespace envelope completeness: which namespaces lack a Namespace object or pod-security label",
@@ -51,7 +51,7 @@ It also flags duplicate Namespace objects that resolve to the same name on the
 same Target (would collide in one cluster); base Units still carrying the
 'confighubplaceholder' name are exempt (vet-placeholders gates them).
 
-Filter with --cluster, --namespace, and --incomplete-only.`,
+Filter with --cluster, --namespace, and --issues-only.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cub.Preflight(cmd.Context())
@@ -66,7 +66,7 @@ Filter with --cluster, --namespace, and --incomplete-only.`,
 			if err != nil {
 				return err
 			}
-			report := buildEnvelopeReport(snap, clusterFilter, namespaceFilter, incompleteOnly)
+			report := buildEnvelopeReport(snap, clusterFilter, namespaceFilter, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -76,13 +76,13 @@ Filter with --cluster, --namespace, and --incomplete-only.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
-	cmd.Flags().BoolVar(&incompleteOnly, "incomplete-only", false, "only namespaces missing one or more envelope members")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "namespaces missing one or more envelope members")
 	return cmd
 }
 
-func buildEnvelopeReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, incompleteOnly bool) envelopeReport {
+func buildEnvelopeReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, issuesOnly bool) envelopeReport {
 	var report envelopeReport
 	for _, e := range nsmanager.AnalyzeFleet(snap.Clusters) {
 		if clusterFilter != "" && e.Cluster != clusterFilter {
@@ -97,7 +97,7 @@ func buildEnvelopeReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter
 		} else {
 			report.Totals.Incomplete++
 		}
-		if incompleteOnly && e.Complete {
+		if issuesOnly && e.Complete {
 			continue
 		}
 		report.Namespaces = append(report.Namespaces, e)

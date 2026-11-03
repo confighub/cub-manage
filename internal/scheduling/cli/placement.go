@@ -46,7 +46,7 @@ func newPlacementCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
 	var clusterFilter, namespaceFilter string
-	var unconstrainedOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "placement",
 		Short: "Per-workload placement: nodeSelector, tolerations, node affinity, and whether it's constrained",
@@ -59,7 +59,7 @@ func newPlacementCmd() *cobra.Command {
                    required node affinity) — tolerations alone do NOT constrain
                    placement, they only permit scheduling onto tainted nodes
 
-Filter with --cluster / --namespace; --unconstrained-only shows workloads that
+Filter with --cluster / --namespace; --issues-only shows workloads that
 pin nothing.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -75,7 +75,7 @@ pin nothing.`,
 			if err != nil {
 				return err
 			}
-			report := buildPlacementReport(snap, clusterFilter, namespaceFilter, unconstrainedOnly)
+			report := buildPlacementReport(snap, clusterFilter, namespaceFilter, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -85,9 +85,9 @@ pin nothing.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
-	cmd.Flags().BoolVar(&unconstrainedOnly, "unconstrained-only", false, "only workloads that don't constrain placement")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "workloads that do not constrain where they land")
 	return cmd
 }
 
@@ -111,7 +111,7 @@ func nodeSelectorPairs(w *scheduling.WorkloadPlacement) []string {
 	return pairs
 }
 
-func buildPlacementReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, unconstrainedOnly bool) placementReport {
+func buildPlacementReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, issuesOnly bool) placementReport {
 	var report placementReport
 	report.Filter = snap.Filter
 	for _, c := range snap.Clusters {
@@ -128,7 +128,7 @@ func buildPlacementReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilte
 			} else {
 				report.Totals.Unconstrained++
 			}
-			if unconstrainedOnly && w.Constrained() {
+			if issuesOnly && w.Constrained() {
 				continue
 			}
 			report.Workloads = append(report.Workloads, placementRow{

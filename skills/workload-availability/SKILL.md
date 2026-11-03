@@ -45,7 +45,7 @@ cub manage workload availability --cluster prod-cluster --namespace checkout
 
 ### Scoping
 
-Same server-side `--where` + label shorthands (`--component`, `--environment`, …) as the other read commands; `--cluster` / `--namespace` are client-side display filters.
+Same server-side `--where` + `--component` and the label shorthands (`--environment`, …) as the other read commands; `--cluster` / `--namespace` are client-side display filters.
 
 ## Stop conditions
 

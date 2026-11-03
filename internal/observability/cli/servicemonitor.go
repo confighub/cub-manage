@@ -12,7 +12,6 @@ import (
 
 	"github.com/confighub/sdk/cliutil"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
-	"github.com/confighub/sdk/managerkit"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -24,27 +23,16 @@ import (
 // unitManagedByLabel marks Units this tool authors (e.g. generated ServiceMonitors).
 const unitManagedByLabel = "cub manage observability"
 
-type ensureSMPlan struct {
-	Action    string `json:"action"`
-	DryRun    bool   `json:"dryRun"`
-	Space     string `json:"space"`
-	Namespace string `json:"namespace,omitempty"`
-	Unit      string `json:"unit"`
-	UnitID    string `json:"unitId,omitempty"`
-	Revision  int64  `json:"revision,omitempty"`
-	Manifest  string `json:"manifest"`
-}
-
 func newEnsureServiceMonitorCmd() *cobra.Command {
 	var output, portName string
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "ensure-servicemonitor <space>/<service-unit>",
-		Short: "Author a ServiceMonitor whose selector is derived from a Service",
+		Short: "Make a ServiceMonitor Unit that selects a Service",
 		Long: `ensure-servicemonitor reads a Service Unit's labels, namespace, and metrics port
-and authors a new ServiceMonitor Unit that selects it. The ServiceMonitor is
-created in the same Space as the Service (its own Unit, per one-resource-per-Unit),
-but not published — deploying it is a separate 'cub release publish <space>'.
+and makes a ServiceMonitor Unit, <service>-sm, that selects it, in the same Space
+as the Service. It creates the Unit, or brings an existing one up to date, so
+running it again changes nothing.
 
 The endpoint port defaults to the Service's metrics port (--port to override).
 Refuses when the Service has no metrics port and no --port. Dry-run unless
@@ -84,37 +72,18 @@ Refuses when the Service has no metrics port and no --port. Dry-run unless
 
 			smSlug := svc.Name + "-sm"
 			manifest := renderServiceMonitor(smSlug, svc.Namespace, svc.Labels, port)
-			plan := ensureSMPlan{Action: "create-servicemonitor", DryRun: dryRun, Space: ref.SpaceSlug, Namespace: svc.Namespace, Unit: smSlug, Manifest: manifest}
-			out := cmd.OutOrStdout()
-			if dryRun {
-				if done, err := managerkit.Render(out, output, plan); done || err != nil {
-					return err
-				}
-				kit.Fprintln(out, fmt.Sprintf("Dry run — would create ServiceMonitor Unit %s/%s:", ref.SpaceSlug, smSlug))
-				kit.Fprintln(out, "")
-				kit.Fprintln(out, manifest)
-				kit.Fprintln(out, "Re-run with --commit --change-desc \"…\" to create the Unit.")
-				return nil
-			}
-			created, err := cub.CreateUnit(cmd.Context(), client, goclientnew.Unit{
-				Slug:                  smSlug,
-				DisplayName:           smSlug,
-				ToolchainType:         "Kubernetes/YAML",
-				SpaceID:               ref.SpaceID,
-				Labels:                map[string]string{"managed-by": unitManagedByLabel},
-				LastChangeDescription: changeDesc,
-			}, manifest)
-			if err != nil {
-				return err
-			}
-			plan.UnitID = created.UnitID.String()
-			plan.Revision = created.HeadRevisionNum
-			if done, err := managerkit.Render(out, output, plan); done || err != nil {
-				return err
-			}
-			kit.Fprintln(out, fmt.Sprintf("Created ServiceMonitor Unit %s/%s (revision %d). Publish the Space to deploy: cub release publish %s",
-				ref.SpaceSlug, smSlug, created.HeadRevisionNum, ref.SpaceSlug))
-			return nil
+			res := cub.EnsureUnits(cmd.Context(), client, []cub.Creation{{
+				SpaceSlug: ref.SpaceSlug,
+				Unit: goclientnew.Unit{
+					Slug:          smSlug,
+					DisplayName:   smSlug,
+					ToolchainType: "Kubernetes/YAML",
+					SpaceID:       ref.SpaceID,
+					Labels:        map[string]string{"managed-by": unitManagedByLabel},
+				},
+				Data: manifest,
+			}}, write.Change(changeDesc, dryRun))
+			return write.ReportMutations(cmd, "ensure-servicemonitor", ref.SpaceSlug, dryRun, output, res)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)

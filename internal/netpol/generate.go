@@ -33,6 +33,18 @@ func DefaultDenyYAML(namespace string, egress bool) (slug, manifest string) {
 	return "default-deny-" + namespace, mustYAML(doc)
 }
 
+// DefaultDenyEgressYAML renders a default-deny for egress alone, allowing DNS to
+// kube-dns, for a namespace whose ingress default-deny is a policy of its own.
+// Its name differs from DefaultDenyYAML's so that the two never collide.
+func DefaultDenyEgressYAML(namespace string) (slug, manifest string) {
+	spec := map[string]any{
+		"podSelector": map[string]any{},
+		"policyTypes": []any{"Egress"},
+		"egress":      []any{dnsEgressRule()},
+	}
+	return "default-deny-egress-" + namespace, mustYAML(networkPolicyDoc("default-deny-egress", namespace, spec))
+}
+
 // AllowYAML renders a NetworkPolicy that admits traffic between two workloads.
 // Default direction is ingress: a policy in dst's namespace selecting dst that
 // admits src. With egress=true it is an egress policy in src's namespace

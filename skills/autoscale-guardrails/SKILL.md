@@ -1,16 +1,17 @@
 ---
 name: autoscale-guardrails
-description: 'Install and inspect the autoscaling enforcement pack with the cub manage autoscale CLI — an common Space with two Warn=true Triggers: a vet-cel rule that flags any HPA/ScaledObject that is pinned (min == max), and a vet-schemas rule that schema-validates every mutation (the post-convert check for convert-keda output, since keda.sh is in the schema catalog) — added to in-scope Spaces as the autoscale guardrail group. guardrails install (dry-run by default) and status (Units with ValidationWarnings/Gates). Use for "enforce that no HPA is pinned", "make sure converted ScaledObjects pass schema validation", "which autoscalers are flagged?". Not for read-only findings (use autoscale-findings) or fixing autoscaling (use autoscale-edit).'
+description: 'Install and inspect the autoscaling enforcement pack with the cub manage autoscale CLI — a Warn=true vet-cel Trigger in the common Space that flags any HPA/ScaledObject that is pinned (min == max), added to in-scope Spaces as the autoscale guardrail group — and the tool-level schema group (cub manage guardrails install), whose vet-schemas rule schema-validates every mutation (the post-convert check for convert-keda output, since keda.sh is in the schema catalog). guardrails install (dry-run by default) and status (Units with ValidationWarnings/Gates). Use for "enforce that no HPA is pinned", "make sure converted ScaledObjects pass schema validation", "which autoscalers are flagged?". Not for read-only findings (use autoscale-findings) or fixing autoscaling (use autoscale-edit).'
 phase: act
-allowed-tools: Bash(cub manage autoscale --help) Bash(cub manage autoscale * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage autoscale guardrails) Bash(cub manage autoscale guardrails *) Bash(cub manage guardrails status *)
+allowed-tools: Bash(cub manage autoscale --help) Bash(cub manage autoscale * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage autoscale guardrails) Bash(cub manage autoscale guardrails *) Bash(cub manage guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # autoscale-guardrails
 
 Turn the autoscaling anti-patterns into **enforcement** — advisory ValidationWarnings (promotable to blocking ValidationErrors) that fire in the normal apply pipeline.
 
-- **`guardrails install`** — creates the `common` Space, two `Warn=true` Triggers, labeled `Pack: autoscale`, then adds the `autoscale` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
-  - `autoscaler-not-pinned` (`vet-cel`) — an HPA/ScaledObject must not have `min == max`.
+- **`cub manage autoscale guardrails install`** — creates the `common` Space and a `Warn=true` Trigger, labeled `Pack: autoscale`, then adds the `autoscale` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
+  - `autoscale-not-pinned` (`vet-cel`) — an HPA/ScaledObject must not have `min == max`.
+- **`cub manage guardrails install`** — the tool-level `schema` group, opted into on its own:
   - `schema-valid` (`vet-schemas`) — a resource must pass Kubernetes/CRD schema validation. This is the **post-convert check** for `convert-keda`: a committed ScaledObject fires the Mutation Trigger and is validated against `keda.sh`'s schema.
 - **`cub manage guardrails status`** — lists Units carrying autoscaling ValidationWarnings or ValidationErrors.
 
@@ -21,7 +22,7 @@ Both rules are plain **per-resource** checks — a single Unit answers each, so 
 ## When to use
 
 - "Enforce that no HPA is ever pinned." → `guardrails install` (preview), then `--commit`.
-- "Make sure converted ScaledObjects pass schema validation." → the `schema-valid` Trigger (installed by the same pack).
+- "Make sure converted ScaledObjects pass schema validation." → the `schema-valid` Trigger: `cub manage guardrails install` (preview), then `--commit`.
 - "Which autoscalers are flagged?" → `cub manage guardrails status`.
 
 ## Do not load for
@@ -38,7 +39,7 @@ Both rules are plain **per-resource** checks — a single Unit answers each, so 
 ## The loop
 
 1. **Preview** (dry-run — the default): `cub manage autoscale guardrails install -o table` — prints the Triggers, which Spaces it would wire, which are already wired, and which it skips (with the reason).
-2. **Install** with `--commit`: `cub manage autoscale guardrails install --commit`. The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub trigger update <slug> --space common --unwarn`.
+2. **Install** with `--commit`: `cub manage autoscale guardrails install --commit` (and `cub manage guardrails install --commit` for schema validation). The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub trigger update <slug> --space common --unwarn`.
 3. **Check** what's flagged: `cub manage guardrails status -o table`.
 4. **Fix** flagged autoscalers via **autoscale-edit**, then re-check.
 
@@ -49,10 +50,10 @@ A resource that is meant to break one rule is excepted from it with an annotatio
 ```yaml
 metadata:
   annotations:
-    exceptions.guardrails.confighub.com/autoscaler-not-pinned: "batch queue: fixed size by design"
+    exceptions.guardrails.confighub.com/autoscale-not-pinned: "batch queue: fixed size by design"
 ```
 
-That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub function set -- set-annotation` on the Unit, with `--where-resource` naming the one resource, as in `ConfigHub.ResourceName = '<namespace>/<name>'`, or `'/<name>'` for a cluster-scoped one), not a way to silence a warning.
+That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub manage guardrails exception add <space>/<unit> --rule <rule> --reason "<why>"`, with `--resource <type>/[<namespace>/]<name>`, as in `apps/v1/Deployment/shop/web`, when the Unit holds more than one resource), not a way to silence a warning. `cub manage guardrails exception list` shows every resource excepted from a rule and the reason recorded; `exception remove` takes one away.
 
 ## Stop conditions
 
@@ -61,9 +62,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged autoscalers is **autoscale-edit**.
+Allowed: `cub manage autoscale guardrails install` and `cub manage guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged autoscalers is **autoscale-edit**.
 
 ## References
 
-- `cub manage autoscale guardrails --help`, `… install --help`, `… status --help`.
+- `cub manage autoscale guardrails install --help`, `cub manage guardrails install --help`, `cub manage guardrails status --help`.
 - Companion skills: **autoscale-edit**, **autoscale-findings**, `triggers-and-applygates`.

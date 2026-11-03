@@ -72,8 +72,8 @@ Filter with --cluster, --namespace, and --direction (ingress|egress). With
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "filter by cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
 	cmd.Flags().StringVar(&direction, "direction", "", "limit to a coverage gap in this direction: ingress | egress")
 	return cmd
 }

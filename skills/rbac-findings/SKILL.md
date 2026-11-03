@@ -17,12 +17,12 @@ ConfigHub stores RBAC as data, so hygiene checks run across every cluster at onc
 
 | analyzer | severity | flags |
 |---|---|---|
-| `wildcard-rules` | high | `*` in a role's verbs, resources, or apiGroups |
-| `privilege-escalation-verbs` | high | `escalate` / `bind` / `impersonate` |
-| `risky-grants` | medium | secrets, `pods/exec`+`pods/attach`, webhook/CRD writes |
-| `cluster-admin-bindings` | high (CRB) / medium (RB) | bindings to cluster-admin or an equivalent custom superuser role |
-| `orphaned-bindings` | medium | binding whose role does not exist on the cluster (builtins excluded) |
-| `unbound-service-accounts` | low | ServiceAccount with no bindings in the snapshot |
+| `wildcard-rule` | high | `*` in a role's verbs, resources, or apiGroups |
+| `privilege-escalation-verb` | high | `escalate` / `bind` / `impersonate` |
+| `risky-grant` | medium | secrets, `pods/exec`+`pods/attach`, webhook/CRD writes |
+| `cluster-admin-binding` | high (CRB) / medium (RB) | bindings to cluster-admin or an equivalent custom superuser role |
+| `orphaned-binding` | medium | binding whose role does not exist on the cluster (builtins excluded) |
+| `unbound-service-account` | low | ServiceAccount with no bindings in the snapshot |
 
 ## When to use
 
@@ -47,31 +47,31 @@ ConfigHub stores RBAC as data, so hygiene checks run across every cluster at onc
 cub manage rbac findings                          # all findings, JSON, severity-sorted
 cub manage rbac findings -o table                 # human table
 cub manage rbac findings --severity high          # high only
-cub manage rbac findings --analyzer wildcard-rules
+cub manage rbac findings --analyzer wildcard-rule
 cub manage rbac findings --environment prod                    # scope to prod (label shorthand)
 cub manage rbac findings --where "Unreleasable = false" # scope by any Unit/Space/Target attribute
 ```
 
-Filters: `--severity` (high | medium | low), `--analyzer` (e.g. `cluster-admin-bindings`). Scope the fleet with a single Unit `--where` filter, or the label shorthands `--component` / `--environment` / `--region` / `--owner` / `--layer` / `--variant` (each expands to `Space.Labels.<Key> = '<value>'`). ConfigHub `where` is flat AND-only — no parentheses, no OR; the shorthands AND onto any `--where`.
+Filters (client-side): `--severity` (high | medium | low), `--analyzer` (e.g. `cluster-admin-binding`), `--cluster`, `--namespace`. Scope the fleet with a single Unit `--where` filter, or the label shorthands `--component` / `--environment` / `--region` / `--owner` / `--layer` / `--variant` (each expands to `Space.Labels.<Key> = '<value>'`). ConfigHub `where` is flat AND-only — no parentheses, no OR; the shorthands AND onto any `--where`.
 
-Each finding row: severity, analyzer, cluster, resource kind, resource (namespace/name), the Unit, and a message explaining the issue and remediation.
+Each finding: severity, analyzer, cluster, namespace, kind, name, Space, Unit, and a message explaining the issue and remediation. The JSON report is `{findings, totals: {total, bySeverity, byAnalyzer}, filter}`.
 
 ## Triage workflow
 
 1. Start with `cub manage rbac findings -o table` for the ranked overview, or JSON for counts:
    ```bash
-   cub manage rbac findings | jq -r 'group_by(.severity)[] | "\(.[0].severity): \(length)"'
-   cub manage rbac findings | jq -r '[.[].analyzer]|group_by(.)|.[]|"\(length)\t\(.[0])"'
+   cub manage rbac findings | jq '.totals.bySeverity'
+   cub manage rbac findings | jq '.totals.byAnalyzer'
    ```
 2. Drill into the highest severity first: `cub manage rbac findings --severity high`.
 3. For a flagged binding/role, pivot to **rbac-whocan** to see who it actually grants, and to **rbac-audit** to inspect the resource.
-4. Report findings with their Unit so the user knows where to remediate (the edit itself is a future write skill / `cub` mutation, not this skill).
+4. Report findings with their Unit so the user knows where to remediate (the edit itself is **rbac-edit** / **rbac-fleet**, the `rbac-*` profiles, not this skill).
 
 ## Interpreting results
 
 - Findings reflect ConfigHub's stored config, not live cluster state.
-- `cluster-admin-bindings` includes custom roles whose effective rules are `*/*/*` (true superusers), not just literal cluster-admin.
-- `orphaned-bindings` excludes Kubernetes builtins (`admin`/`edit`/`view`/`system:*`) and `cluster-admin`, which exist without a stored manifest.
+- `cluster-admin-binding` includes custom roles whose effective rules are `*/*/*` (true superusers), not just literal cluster-admin.
+- `orphaned-binding` excludes Kubernetes builtins (`admin`/`edit`/`view`/`system:*`) and `cluster-admin`, which exist without a stored manifest.
 
 ## Stop conditions
 

@@ -1,13 +1,13 @@
 ---
 name: workload-findings
-description: 'Produce a severity-ranked list of Kubernetes workload-readiness findings across a ConfigHub fleet with the cub manage workload CLI, spanning every analyzer (security, resources, probes, hygiene, availability). Use for "what is wrong with our workloads, ranked?", "show the high-severity workload issues", "workload findings for the payments component", "audit workload readiness across the fleet". Not for the raw per-workload scorecard (use workload-audit), PDB-only coverage (use workload-availability), or fixing issues (use workload-harden); analysis is over ConfigHub-managed Units only.'
+description: 'Produce a severity-ranked list of Kubernetes workload-readiness findings across a ConfigHub fleet with the cub manage workload CLI, spanning every readiness check (security, resources, probes, hygiene, availability). Use for "what is wrong with our workloads, ranked?", "show the high-severity workload issues", "workload findings for the payments component", "audit workload readiness across the fleet". Not for the raw per-workload scorecard (use workload-audit), PDB-only coverage (use workload-availability), or fixing issues (use workload-harden); analysis is over ConfigHub-managed Units only.'
 phase: verify
 allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload findings) Bash(cub manage workload findings *)
 ---
 
 # workload-findings
 
-Flatten the fleet readiness scorecard into a single **severity-ranked list** of findings — most-severe first — spanning every analyzer. This is the triage surface: "what should we fix, in what order." Read-only.
+Flatten the fleet readiness scorecard into a single **severity-ranked list** of findings — most-severe first — spanning every readiness check. This is the triage surface: "what should we fix, in what order." Read-only.
 
 ## Why this matters
 
@@ -17,7 +17,7 @@ Flatten the fleet readiness scorecard into a single **severity-ranked list** of 
 
 - "What's wrong with our workloads, ranked?" → `findings`.
 - "Show the high-severity issues." → `findings --severity high`.
-- "Only the security findings." → `findings --analyzer security`.
+- "Only the workloads without limits." → `findings --analyzer missing-memory-limit,missing-cpu-limit`.
 - "Findings for the payments component / in prod." → `findings --component payments` / `--environment prod`.
 
 ## Do not load for
@@ -35,17 +35,17 @@ Flatten the fleet readiness scorecard into a single **severity-ranked list** of 
 
 ### Ranked findings — `cub manage workload findings`
 
-One finding per issue, sorted high → low, each carrying the analyzer, cluster, namespace, kind, name, and message.
+One finding per failed check, sorted high → low, each carrying the analyzer (the check's name), cluster, namespace, kind, name, and message.
 
 ```bash
 cub manage workload findings -o table
 cub manage workload findings --severity high
-cub manage workload findings --analyzer availability --environment prod
+cub manage workload findings --analyzer missing-pdb,pdb-blocks-eviction,missing-spread --environment prod
 ```
 
 ### Scoping
 
-Server-side `--where` + label shorthands (`--component`, `--environment`, …); plus `--severity` (high|medium|low) and `--analyzer` (security|resources|probes|hygiene|availability); `--cluster` / `--namespace` are client-side.
+Server-side `--where` + `--component` and the label shorthands (`--environment`, …); plus `--severity` (high|medium|low) and `--analyzer`, a comma-separated list of checks named for what they find wrong (`privileged-container`, `missing-memory-limit`, `missing-readiness-probe`, `missing-pdb`, …; the full list is in `--help`); `--cluster` / `--namespace` are client-side.
 
 ## Stop conditions
 

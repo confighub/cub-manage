@@ -88,10 +88,10 @@ func TestFindings_UncoveredAndDangling(t *testing.T) {
 	fs := Findings(fleet(t, metricsService, danglingMonitor))
 	var haveCoverage, haveDangling bool
 	for _, f := range fs {
-		if f.Analyzer == "coverage" && f.Severity == api.ScoreMedium {
+		if f.Analyzer == "unmonitored-service" && f.Severity == api.ScoreMedium {
 			haveCoverage = true
 		}
-		if f.Analyzer == "dangling" && f.Severity == api.ScoreLow {
+		if f.Analyzer == "dangling-servicemonitor" && f.Severity == api.ScoreLow {
 			haveDangling = true
 		}
 	}

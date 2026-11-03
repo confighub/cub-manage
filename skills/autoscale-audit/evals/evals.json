@@ -26,7 +26,7 @@
       "id": 4,
       "name": "routes-findings",
       "prompt": "Which workloads have no autoscaler at all?",
-      "expected_output": "Recognizes this is an anti-pattern report and routes to autoscale-findings (no-autoscaler analyzer) rather than answering from the raw inventory.",
+      "expected_output": "Recognizes this is an anti-pattern report and routes to autoscale-findings (missing-autoscaler analyzer) rather than answering from the raw inventory.",
       "files": []
     }
   ]

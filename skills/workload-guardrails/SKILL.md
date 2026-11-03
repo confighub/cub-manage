@@ -2,7 +2,7 @@
 name: workload-guardrails
 description: 'Install and operate the workload-readiness enforcement pack with the cub manage workload CLI — a common Space of Warn=true vet-cel Triggers (containers set a memory limit, run as non-root, set terminationMessagePolicy, run database images in a StatefulSet), a vet-images Trigger (no untagged or latest images), plus an annotate-then-validate Trigger for cross-Unit PodDisruptionBudget coverage, added to in-scope Spaces as the workload guardrail group. guardrails install (dry-run by default), status (Units with ValidationWarnings/Gates), annotate (write the PDB-coverage finding onto uncovered workloads). Use for "enforce workload readiness", "block workloads with no memory limit", "warn on latest images", "flag databases run as Deployments", "warn on workloads with no PDB", "which workloads are flagged?". Not for read-only scoring (use workload-audit / workload-findings) or fixing workloads (use workload-harden / workload-fleet).'
 phase: act
-allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload guardrails) Bash(cub manage workload guardrails *) Bash(cub manage guardrails status *)
+allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload guardrails) Bash(cub manage workload guardrails *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # workload-guardrails
@@ -68,7 +68,7 @@ metadata:
     exceptions.guardrails.confighub.com/workload-runs-nonroot: "vendor image needs root; tracked in SEC-123"
 ```
 
-That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub function set -- set-annotation` on the Unit, with `--where-resource` naming the one resource, as in `ConfigHub.ResourceName = '<namespace>/<name>'`, or `'/<name>'` for a cluster-scoped one), not a way to silence a warning.
+That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub manage guardrails exception add <space>/<unit> --rule <rule> --reason "<why>"`, with `--resource <type>/[<namespace>/]<name>`, as in `apps/v1/Deployment/shop/web`, when the Unit holds more than one resource), not a way to silence a warning. `cub manage guardrails exception list` shows every resource excepted from a rule and the reason recorded; `exception remove` takes one away.
 
 ## Stop conditions
 

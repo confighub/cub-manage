@@ -5,14 +5,14 @@
       "id": 1,
       "name": "install-preview",
       "prompt": "Enforce that no HPA in our fleet is pinned.",
-      "expected_output": "Runs `cub manage preflight` then `cub manage autoscale guardrails install` (dry-run) to show the autoscaler-not-pinned Trigger and which Spaces would be wired, before re-running with --commit.",
+      "expected_output": "Runs `cub manage preflight` then `cub manage autoscale guardrails install` (dry-run) to show the autoscale-not-pinned Trigger and which Spaces would be wired, before re-running with --commit.",
       "files": []
     },
     {
       "id": 2,
       "name": "schema-check",
       "prompt": "Make sure the ScaledObjects we generate pass schema validation.",
-      "expected_output": "Explains the schema-valid vet-schemas Trigger in the guardrails pack validates every mutation (including convert-keda output, keda.sh is in the catalog) and installs the pack.",
+      "expected_output": "Explains that the schema-valid vet-schemas Trigger of the tool-level schema group validates every mutation (including convert-keda output, keda.sh is in the catalog), and installs it with `cub manage guardrails install` (dry-run, then --commit).",
       "files": []
     },
     {

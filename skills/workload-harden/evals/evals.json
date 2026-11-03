@@ -19,7 +19,7 @@
       "id": 3,
       "name": "ensure-pdb",
       "prompt": "Add a PodDisruptionBudget for the web deployment.",
-      "expected_output": "Runs `cub manage workload ensure-pdb <space>/web` dry-run (shows the derived PDB manifest) then --commit --change-desc, creating a new PDB Unit (not published).",
+      "expected_output": "Runs `cub manage workload ensure-pdb <space>/web` dry-run (shows the PDB Unit it would create and its diff) then --commit --change-desc, creating the PDB Unit (not released).",
       "files": []
     },
     {

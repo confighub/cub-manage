@@ -2,7 +2,7 @@
 name: rbac-guardrails
 description: 'Install and inspect the RBAC guardrail policy pack across a ConfigHub fleet with the cub manage rbac CLI. Use for "enforce RBAC policy", "block wildcard roles / privilege escalation / cluster-admin bindings", "set up RBAC guardrails", "wire the guardrail triggers to my spaces", "which units have RBAC warnings?", "are our RBAC policies installed?". Installs three Warn=true Triggers in a policy Space, labeled Pack: rbac, and adds the rbac group to each in-scope Space''s WhereTrigger; dry-run by default, --commit to apply. Not for one-off validation (use rbac-findings), not for editing RBAC config (use rbac-edit); promoting a guardrail to blocking and applying changes are done with cub directly.'
 phase: act
-allowed-tools: Bash(cub manage rbac --help) Bash(cub manage rbac * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage rbac findings *) Bash(cub manage rbac guardrails *) Bash(cub manage guardrails status *)
+allowed-tools: Bash(cub manage rbac --help) Bash(cub manage rbac * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage rbac findings *) Bash(cub manage rbac guardrails *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # rbac-guardrails
@@ -13,14 +13,14 @@ Install and inspect a small pack of RBAC validation policies, defined once in a 
 
 | trigger | blocks |
 |---|---|
-| `no-rbac-wildcards` | wildcard verbs / resources / apiGroups in a Role/ClusterRole |
-| `no-rbac-privilege-escalation` | `escalate` / `bind` / `impersonate` verbs |
-| `no-cluster-admin-binding` | ClusterRoleBindings to `cluster-admin` |
+| `rbac-no-wildcards` | wildcard verbs / resources / apiGroups in a Role/ClusterRole |
+| `rbac-no-privilege-escalation` | `escalate` / `bind` / `impersonate` verbs |
+| `rbac-no-cluster-admin-binding` | ClusterRoleBindings to `cluster-admin` |
 
 Triggers are created with **Warn=true** → they produce advisory **ValidationWarnings**, never blocking **ValidationErrors**. Installing on an existing fleet never blocks anyone. Promote one to blocking later (a single change, fleet-wide):
 
 ```bash
-cub trigger update no-rbac-wildcards --space <policy-space> --unwarn
+cub trigger update rbac-no-wildcards --space <policy-space> --unwarn
 ```
 
 ## Why this matters
@@ -79,10 +79,10 @@ A resource that is meant to break a rule — an operator that needs a wildcard C
 ```yaml
 metadata:
   annotations:
-    exceptions.guardrails.confighub.com/no-rbac-wildcards: "argocd manages every resource type"
+    exceptions.guardrails.confighub.com/rbac-no-wildcards: "argocd manages every resource type"
 ```
 
-Each rule's Trigger skips the resources carrying its exception annotation; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub function set -- set-annotation` on the Unit, with `--where-resource` naming the one resource, as in `ConfigHub.ResourceName = '<namespace>/<name>'`, or `'/<name>'` for a cluster-scoped one), not something to add to silence a warning.
+Each rule's Trigger skips the resources carrying its exception annotation; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub manage guardrails exception add <space>/<unit> --rule <rule> --reason "<why>"`, with `--resource <type>/[<namespace>/]<name>`, as in `apps/v1/Deployment/shop/web`, when the Unit holds more than one resource), not something to add to silence a warning. `cub manage guardrails exception list` shows every resource excepted from a rule and the reason recorded; `exception remove` takes one away.
 
 ## Flags
 

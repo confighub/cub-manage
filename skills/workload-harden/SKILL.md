@@ -12,7 +12,7 @@ Fix the gaps `workload-findings` / `workload-audit` / `workload-availability` su
 - **`harden`** — `set-pod-container-security-context-defaults` + `set-automount-service-account-token-false` (fixes security findings).
 - **`set-resources`** — `set-container-resources` by `--tier small|medium|large` or explicit `--cpu/--memory/--limit-factor` (fixes missing requests/limits).
 - **`set-probes`** — `set-container-probe-defaults` (fixes missing probes).
-- **`ensure-pdb`** — derives the PDB selector from the workload's pod labels and authors a new PDB Unit (fixes uncovered availability).
+- **`ensure-pdb`** — derives the PDB selector from the workload's pod labels and makes a PDB Unit, `<workload>-pdb`, creating it or bringing an existing one up to date (fixes uncovered availability).
 - **`ensure-spread`** — adds pod anti-affinity (`--anti-affinity soft|hard`) or a topology spread constraint (fixes no-spread).
 
 All **create/edit Units but do not publish them** — rolling out is a separate, deliberate `cub release publish <space>`, which bundles the Space's Units for its release Target.
@@ -43,7 +43,7 @@ Per-object validators return pass/fail and a human then `kubectl edit`s the clus
 
 ## The loop
 
-1. **See the gap** (read-only): `cub manage workload readiness --failing-only` / `cub manage workload availability --issues-only` / `cub manage workload findings --severity high`.
+1. **See the gap** (read-only): `cub manage workload readiness --issues-only` / `cub manage workload availability --issues-only` / `cub manage workload findings --severity high`.
 2. **Preview** the fix (dry-run — the default), e.g.:
    ```bash
    cub manage workload harden apptique-prod/frontend
@@ -59,7 +59,7 @@ Per-object validators return pass/fail and a human then `kubectl edit`s the clus
    ```
    Re-runs are idempotent.
 4. **Verify**: `cub manage workload readiness --cluster <c> --namespace <ns>` / `availability` shows the dimension now passes.
-5. **Roll out** is a separate step — hand off to `release-publish` (Units are created/edited, not published).
+5. **Roll out** is a separate step — hand off to `release-publish` (Units are created/edited, not released).
 
 ## Safety
 

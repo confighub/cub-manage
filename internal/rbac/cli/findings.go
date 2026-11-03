@@ -4,13 +4,6 @@
 package cli
 
 import (
-	"fmt"
-	"strings"
-	"text/tabwriter"
-
-	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
-
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -19,38 +12,29 @@ import (
 	"github.com/confighub/cub-manage/internal/rbac/snapshot"
 )
 
-type findingRow struct {
-	Severity  api.Score `json:"severity"`
-	Analyzer  string    `json:"analyzer"`
-	Cluster   string    `json:"cluster"`
-	Kind      string    `json:"kind"`
-	Namespace string    `json:"namespace,omitempty"`
-	Name      string    `json:"name"`
-	Unit      string    `json:"unit"`
-	Message   string    `json:"message"`
-}
+// analyzers are the analyzers findings runs, which --analyzer names.
+var analyzers = []string{"wildcard-rule", "privilege-escalation-verb", "risky-grant", "cluster-admin-binding", "orphaned-binding", "unbound-service-account"}
 
 func newFindingsCmd() *cobra.Command {
-	var output, severityFilter, analyzerFilter string
+	var output string
 	var filter kit.FilterFlags
+	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Report RBAC hygiene findings across the fleet",
-		Long: `findings runs the RBAC hygiene analyzers over the fleet and reports issues:
+		Short: "Report RBAC hygiene issues across the fleet, most severe first",
+		Long: `findings analyzes the fleet and reports RBAC issues, most severe first:
 
-  wildcard-rules             wildcard verbs/resources/apiGroups in a role
-  privilege-escalation-verbs escalate / bind / impersonate
-  risky-grants               secrets, pod exec/attach, webhook/CRD writes
-  cluster-admin-bindings     bindings to cluster-admin or equivalent superuser roles
-  orphaned-bindings          bindings whose role does not exist on the cluster
-  unbound-service-accounts   ServiceAccounts with no bindings
+  wildcard-rule              (high) wildcard verbs, resources or apiGroups in a role
+  privilege-escalation-verb  (high) escalate, bind or impersonate
+  cluster-admin-binding      (high, medium for a RoleBinding) a binding to cluster-admin
+  risky-grant                (medium) secrets, pod exec or attach, webhook or CRD writes
+  orphaned-binding           (medium) a binding whose role does not exist on the cluster
+  unbound-service-account    (low) a ServiceAccount nothing binds
 
-These are analysis-only; enforcement is server-side via Triggers/ValidationErrors.
-Filter with --severity (Critical|High|Medium|Low) and --analyzer.`,
+Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			severity, err := kit.ParseScore(severityFilter)
-			if err != nil {
+			if err := only.Validate(); err != nil {
 				return err
 			}
 			client, err := cub.Preflight(cmd.Context())
@@ -65,55 +49,23 @@ Filter with --severity (Critical|High|Medium|Low) and --analyzer.`,
 			if err != nil {
 				return err
 			}
-			rows := findingRows(rbac.AnalyzeFleet(snap.Clusters), severity, analyzerFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
-				return err
-			}
-			printFindingsTable(cmd, rows)
-			return nil
+			return kit.RenderFindings(cmd, output, kit.NewFindingsReport(findings(snap), only, snap.Filter))
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&severityFilter, "severity", "", "filter by severity: Critical | High | Medium | Low")
-	cmd.Flags().StringVar(&analyzerFilter, "analyzer", "", "filter by analyzer name (e.g. wildcard-rules)")
+	kit.AddFindingFlags(cmd, &only, analyzers...)
 	return cmd
 }
 
-func findingRows(findings []rbac.Finding, severityFilter api.Score, analyzerFilter string) []findingRow {
-	rows := make([]findingRow, 0, len(findings))
-	for _, f := range findings {
-		if severityFilter != api.ScoreNone && f.Severity != severityFilter {
-			continue
-		}
-		if analyzerFilter != "" && f.Analyzer != analyzerFilter {
-			continue
-		}
-		rows = append(rows, findingRow{
-			Severity:  f.Severity,
-			Analyzer:  f.Analyzer,
-			Cluster:   f.Cluster,
-			Kind:      f.ResourceKind,
-			Namespace: f.Namespace,
-			Name:      f.ResourceName,
-			Unit:      f.Origin.UnitSlug,
-			Message:   f.Message,
+// findings is every RBAC finding in the snapshot, in the shared form.
+func findings(snap *snapshot.Snapshot) []kit.Finding {
+	var out []kit.Finding
+	for _, f := range rbac.AnalyzeFleet(snap.Clusters) {
+		out = append(out, kit.Finding{
+			Severity: f.Severity, Analyzer: f.Analyzer, Cluster: f.Cluster, Namespace: f.Namespace,
+			Kind: f.ResourceKind, Name: f.ResourceName, Space: f.Origin.Space, Unit: f.Origin.UnitSlug, Message: f.Message,
 		})
 	}
-	return rows
-}
-
-func printFindingsTable(cmd *cobra.Command, rows []findingRow) {
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEVERITY\tANALYZER\tCLUSTER\tKIND\tRESOURCE\tMESSAGE")
-	for _, r := range rows {
-		name := r.Name
-		if r.Namespace != "" {
-			name = r.Namespace + "/" + r.Name
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			strings.ToUpper(string(r.Severity)), r.Analyzer, r.Cluster, r.Kind, name, r.Message)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d findings", len(rows)))
+	return out
 }

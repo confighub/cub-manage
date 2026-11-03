@@ -31,7 +31,7 @@ type grantRow struct {
 }
 
 func newWhoCanCmd() *cobra.Command {
-	var output, apiGroup, namespace, name string
+	var output, apiGroup, cluster, namespace, name string
 	var filter kit.FilterFlags
 	cmd := &cobra.Command{
 		Use:   "who-can <verb> <resource>",
@@ -40,8 +40,9 @@ func newWhoCanCmd() *cobra.Command {
 the cluster, the granting binding and role, and the namespace scope.
 
 RESOURCE may include a subresource (e.g. pods/log). Use --api-group for
-non-core groups (e.g. --api-group apps for deployments), --namespace to restrict
-to grants effective in a namespace, and --name to honor resourceNames.
+non-core groups (e.g. --api-group apps for deployments), --cluster to one cluster,
+--namespace to the grants effective in a namespace (its own and the cluster-wide
+ones), and --name to honor resourceNames.
 
 Only cluster-admin is credited among Kubernetes builtins (its rules are known);
 bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
@@ -69,7 +70,7 @@ bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
 				Namespace: namespace,
 				Name:      name,
 			}
-			rows := grantRows(rbac.WhoCan(snap.Clusters, query))
+			rows := grantRows(rbac.WhoCan(onlyCluster(snap.Clusters, cluster), query))
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
 				return err
 			}
@@ -80,7 +81,8 @@ bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
 	cmd.Flags().StringVar(&apiGroup, "api-group", "", "API group of the resource (default core)")
-	cmd.Flags().StringVar(&namespace, "namespace", "", "restrict to grants effective in this namespace")
+	kit.AddClusterFlag(cmd, &cluster)
+	cmd.Flags().StringVar(&namespace, "namespace", "", "only grants effective in this namespace: its own and the cluster-wide ones")
 	cmd.Flags().StringVar(&name, "name", "", "specific object name (honors resourceNames)")
 	return cmd
 }
@@ -139,7 +141,7 @@ type subjectGrantRow struct {
 }
 
 func newAccessCmd() *cobra.Command {
-	var output string
+	var output, cluster, namespace string
 	var filter kit.FilterFlags
 	cmd := &cobra.Command{
 		Use:   "access <subject>",
@@ -149,7 +151,10 @@ func newAccessCmd() *cobra.Command {
 SUBJECT is "Kind:Name", or "ServiceAccount:namespace/name" for a ServiceAccount:
   User:alice@example.com
   Group:oidc:developers
-  ServiceAccount:apps/ci-deployer`,
+  ServiceAccount:apps/ci-deployer
+
+--cluster narrows the list to one cluster, and --namespace to the grants effective
+in a namespace: its own and the cluster-wide ones.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			subject, err := parseSubjectRef(args[0])
@@ -168,7 +173,7 @@ SUBJECT is "Kind:Name", or "ServiceAccount:namespace/name" for a ServiceAccount:
 			if err != nil {
 				return err
 			}
-			rows := subjectGrantRows(rbac.SubjectAccess(snap.Clusters, subject))
+			rows := subjectGrantRows(rbac.SubjectAccess(onlyCluster(snap.Clusters, cluster), subject), namespace)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
 				return err
 			}
@@ -178,7 +183,21 @@ SUBJECT is "Kind:Name", or "ServiceAccount:namespace/name" for a ServiceAccount:
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
+	kit.AddClusterFlag(cmd, &cluster)
+	cmd.Flags().StringVar(&namespace, "namespace", "", "only grants effective in this namespace: its own and the cluster-wide ones")
 	return cmd
+}
+
+// onlyCluster narrows the clusters to the one named, or keeps them all when none
+// is.
+func onlyCluster(clusters map[string]*rbac.ClusterRbac, name string) map[string]*rbac.ClusterRbac {
+	if name == "" {
+		return clusters
+	}
+	if c, ok := clusters[name]; ok {
+		return map[string]*rbac.ClusterRbac{name: c}
+	}
+	return nil
 }
 
 // parseSubjectRef parses "Kind:Name" (or "ServiceAccount:ns/name").
@@ -217,9 +236,14 @@ func normalizeSubjectKind(s string) (string, error) {
 	}
 }
 
-func subjectGrantRows(grants []rbac.SubjectGrant) []subjectGrantRow {
+// subjectGrantRows are the grants effective in namespace, or all of them when no
+// namespace is named. A cluster-wide grant is effective in every namespace.
+func subjectGrantRows(grants []rbac.SubjectGrant, namespace string) []subjectGrantRow {
 	rows := make([]subjectGrantRow, 0, len(grants))
 	for _, g := range grants {
+		if namespace != "" && g.Scope != "" && g.Scope != namespace {
+			continue
+		}
 		rows = append(rows, subjectGrantRow{
 			Cluster:     g.Cluster,
 			RoleRef:     g.RoleRefName,

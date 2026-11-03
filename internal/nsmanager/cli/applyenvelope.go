@@ -4,9 +4,8 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"slices"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -33,12 +32,11 @@ type applyEnvelopeReport struct {
 
 func newApplyEnvelopeCmd() *cobra.Command {
 	var output, clusterFilter, namespaceFilter, level, version string
-	var spaces []string
 	var bases bool
 	var filter kit.FilterFlags
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
-		Use:   "apply-envelope (--space <space> | --cluster <cluster> | --namespace <ns>)",
+		Use:   "apply-envelope",
 		Short: "Set each namespace's Pod Security Standard to the most restrictive level its workloads meet",
 		Long: `apply-envelope labels each selected namespace with the most restrictive Pod
 Security Standard level all of its workloads meet -- the ACHIEVABLE column of
@@ -67,22 +65,18 @@ alone, with the reason, when the cluster owns it (kube-system, default, ...),
 when some of its workloads could not be checked, when it has no workloads in
 ConfigHub and no --level was given, or when its workloads do not meet --level.
 
-Select namespaces by the Space holding their Namespace Unit (--space), --cluster
-or --namespace. With --bases it labels base Spaces instead -- Spaces with no
-release Target, which deploy nowhere -- each judged by its own workloads (and
-listed under its slug as the cluster); the variants made from a base pick the
-labels up when they are upgraded from it.
+The namespaces are selected as every command selects what it reports: the fleet
+scope (--where, --component and the label shorthands) picks the Namespace Units,
+and --cluster and --namespace narrow them further. A namespace's level is judged
+from all of its workloads, wherever their Units are, so the scope selects which
+namespaces are labeled, not which workloads count. With --bases it labels base
+Spaces instead -- Spaces with no release Target, which deploy nowhere -- each
+judged by its own workloads (and listed under its slug as the cluster); the
+variants made from a base pick the labels up when they are upgraded from it.
 
-The server-side filters scope which Units are read; narrowing them can hide
-workloads that run in a namespace from other Spaces.
-The Units are edited, not published — rolling them out is a separate
-'cub release publish'. Dry-run unless --commit --change-desc; the dry run shows
-each Unit's diff.`,
+Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(spaces) == 0 && clusterFilter == "" && namespaceFilter == "" {
-				return fmt.Errorf("select the namespaces with --space, --cluster or --namespace")
-			}
 			switch level {
 			case "", nsmanager.LevelPrivileged, nsmanager.LevelBaseline, nsmanager.LevelRestricted:
 			default:
@@ -91,7 +85,7 @@ each Unit's diff.`,
 			if version == "" {
 				version = "latest"
 			}
-			changeDesc, dryRun, err := commit.Validate("apply the Pod Security Standard level their workloads meet to " + describeSelection(spaces, clusterFilter, namespaceFilter))
+			changeDesc, dryRun, err := commit.Validate("apply the Pod Security Standard level their workloads meet to the selected namespaces")
 			if err != nil {
 				return err
 			}
@@ -103,12 +97,22 @@ each Unit's diff.`,
 			if err != nil {
 				return err
 			}
-			fleet, err := loadPodSecurity(cmd.Context(), client, where, version, bases)
+			inScope, err := unitsInScope(cmd.Context(), client, where)
+			if err != nil {
+				return err
+			}
+			// A base is judged by its own workloads, so the scope can narrow what
+			// is read; a deployed namespace is judged by all of them.
+			readScope := ""
+			if bases {
+				readScope = where
+			}
+			fleet, err := loadPodSecurity(cmd.Context(), client, readScope, version, bases)
 			if err != nil {
 				return err
 			}
 			selected := func(n *nsmanager.NamespaceEntity) bool {
-				return (len(spaces) == 0 || slices.Contains(spaces, n.Origin.Space)) &&
+				return (inScope == nil || inScope[n.Origin.UnitID]) &&
 					(clusterFilter == "" || n.Origin.Cluster == clusterFilter) &&
 					(namespaceFilter == "" || n.Name == namespaceFilter)
 			}
@@ -135,17 +139,16 @@ each Unit's diff.`,
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
-			printApplyEnvelope(cmd, report, dryRun)
-			return nil
+			printApplyEnvelope(cmd, report)
+			return write.ReportMutations(cmd, "apply-envelope", "", dryRun, output, results...)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
 	commit.Bind(cmd)
-	cmd.Flags().StringSliceVar(&spaces, "space", nil, "label the namespaces whose Namespace Unit is in this Space (repeat, or comma-separate, for several)")
 	cmd.Flags().BoolVar(&bases, "bases", false, "label base Spaces, those with no release Target, instead of deployed ones, each judged by its own workloads; variants then pick the labels up by upgrade")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "label the namespaces on this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "label this namespace")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
 	cmd.Flags().StringVar(&level, "level", "", "level to apply: privileged | baseline | restricted (default: the most restrictive one each namespace's workloads meet)")
 	cmd.Flags().StringVar(&version, "version", "latest", `Pod Security Standards version to check against and label: "latest" or a Kubernetes minor version such as "v1.30"`)
 	return cmd
@@ -168,21 +171,28 @@ func labelInvocations(edits []nsmanager.LabelEdit) []api.FunctionInvocation {
 	return invocations
 }
 
-func describeSelection(spaces []string, cluster, namespace string) string {
-	var parts []string
-	if namespace != "" {
-		parts = append(parts, "namespace "+namespace)
+// unitsInScope is the IDs of the Units the fleet scope selects, or nil when there
+// is no scope and every Unit is selected.
+func unitsInScope(ctx context.Context, client *cubapi.Client, where string) (map[string]bool, error) {
+	if where == "" {
+		return nil, nil
 	}
-	if cluster != "" {
-		parts = append(parts, "cluster "+cluster)
+	units, err := cubapi.ListUnits(ctx, client, cubapi.NewWhere(where), cubapi.ListOpts{Select: "UnitID"})
+	if err != nil {
+		return nil, err
 	}
-	if len(spaces) > 0 {
-		parts = append(parts, "the Namespace Units in "+strings.Join(spaces, ", "))
+	ids := make(map[string]bool, len(units))
+	for _, u := range units {
+		if u.Unit != nil {
+			ids[u.Unit.UnitID.String()] = true
+		}
 	}
-	return strings.Join(parts, " on ")
+	return ids, nil
 }
 
-func printApplyEnvelope(cmd *cobra.Command, r applyEnvelopeReport, dryRun bool) {
+// printApplyEnvelope prints the level each selected namespace gets, ahead of the
+// write report.
+func printApplyEnvelope(cmd *cobra.Command, r applyEnvelopeReport) {
 	out := cmd.OutOrStdout()
 	if len(r.Namespaces) == 0 {
 		kit.Fprintln(out, "No Namespace Units match the selection.")
@@ -206,14 +216,5 @@ func printApplyEnvelope(cmd *cobra.Command, r applyEnvelopeReport, dryRun bool) 
 			kit.Fprintln(out, fmt.Sprintf("  %s/%s: %s", p.Cluster, p.Namespace, p.Note))
 		}
 	}
-	verb := "changed"
-	if dryRun {
-		verb = "would change"
-	}
-	kit.Fprintln(out, fmt.Sprintf("\napply-envelope: %d of %d Unit(s) %s%s",
-		r.Result.Mutated, len(r.Edits), verb, write.DryRunSuffix(dryRun)))
-	if !dryRun && r.Result.Committed > 0 {
-		kit.Fprintln(out, "Not published — rolling out is a separate `cub release publish`.")
-	}
-	write.WriteDiffs(out, "apply-envelope", r.Result)
+	kit.Fprintln(out, "")
 }

@@ -35,7 +35,7 @@ func newReadinessCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
 	var dimension, clusterFilter, namespaceFilter string
-	var failingOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "readiness",
 		Short: "Per-workload production-readiness scorecard: security / resources / probes / hygiene",
@@ -56,7 +56,7 @@ Each dimension is scored pass / warn / fail; the workload's overall status is th
 worst of its dimensions.
 
 Restrict to one dimension with --dimension, and to a cluster / namespace with
---cluster / --namespace. Use --failing-only to show just warn+fail workloads.`,
+--cluster / --namespace. Use --issues-only to show just warn+fail workloads.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dims []string
@@ -79,7 +79,7 @@ Restrict to one dimension with --dimension, and to a cluster / namespace with
 			if err != nil {
 				return err
 			}
-			report := buildReadinessReport(snap, dims, clusterFilter, namespaceFilter, failingOnly)
+			report := buildReadinessReport(snap, dims, clusterFilter, namespaceFilter, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -90,9 +90,9 @@ Restrict to one dimension with --dimension, and to a cluster / namespace with
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
 	cmd.Flags().StringVar(&dimension, "dimension", "", "score only one dimension: security | resources | probes | hygiene | availability")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
-	cmd.Flags().BoolVar(&failingOnly, "failing-only", false, "only workloads with a warn or fail dimension")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "workloads with a warn or fail dimension")
 	return cmd
 }
 
@@ -105,7 +105,7 @@ func isKnownDimension(d string) bool {
 	return false
 }
 
-func buildReadinessReport(snap *snapshot.Snapshot, dims []string, clusterFilter, namespaceFilter string, failingOnly bool) readinessReport {
+func buildReadinessReport(snap *snapshot.Snapshot, dims []string, clusterFilter, namespaceFilter string, issuesOnly bool) readinessReport {
 	var report readinessReport
 	if len(dims) == 0 {
 		report.Dimensions = workload.AllDimensions
@@ -129,7 +129,7 @@ func buildReadinessReport(snap *snapshot.Snapshot, dims []string, clusterFilter,
 		case workload.StatusFail:
 			report.Totals.Fail++
 		}
-		if failingOnly && s.Overall == workload.StatusPass {
+		if issuesOnly && s.Overall == workload.StatusPass {
 			continue
 		}
 		report.Workloads = append(report.Workloads, s)

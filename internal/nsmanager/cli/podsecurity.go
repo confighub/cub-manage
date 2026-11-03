@@ -119,8 +119,8 @@ Kubernetes minor version of the standards instead of the latest.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
 	cmd.Flags().StringVar(&statusFilter, "status", "", "filter by status: "+strings.Join(podSecurityStatuses, " | "))
 	cmd.Flags().StringVar(&version, "version", "", `Pod Security Standards version to check against: "latest" (the default) or a Kubernetes minor version such as "v1.30"`)
 	cmd.Flags().BoolVar(&bases, "bases", false, "check base Spaces, those with no release Target, instead of deployed ones, each Space on its own, listed under its slug as the cluster")

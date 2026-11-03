@@ -12,7 +12,7 @@
       "id": 2,
       "name": "sidecars",
       "prompt": "Which workloads have an OpenTelemetry sidecar?",
-      "expected_output": "Runs `cub manage observability sidecars` (optionally --missing-only) and reports sidecar presence per workload.",
+      "expected_output": "Runs `cub manage observability sidecars` (optionally --issues-only) and reports sidecar presence per workload.",
       "files": []
     },
     {

@@ -4,13 +4,6 @@
 package cli
 
 import (
-	"fmt"
-	"strings"
-	"text/tabwriter"
-
-	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
-
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -19,34 +12,31 @@ import (
 	"github.com/confighub/cub-manage/internal/scheduling/snapshot"
 )
 
-type findingsReport struct {
-	Findings []scheduling.Finding `json:"findings"`
-	Totals   struct {
-		Findings int `json:"findings"`
-		High     int `json:"high"`
-		Medium   int `json:"medium"`
-		Low      int `json:"low"`
-	} `json:"totals"`
-	Filter string `json:"filter,omitempty"`
-}
+// analyzers are the analyzers findings runs, which --analyzer names.
+var analyzers = []string{"toleration-without-placement"}
 
 func newFindingsCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var severityFilter, clusterFilter, namespaceFilter string
+	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Severity-ranked placement findings across the fleet",
-		Long: `findings reports placement anti-patterns across the fleet, most-severe first.
+		Short: "Report placement issues across the fleet, most severe first",
+		Long: `findings analyzes the fleet and reports placement issues, most severe first:
 
-v1 flags workloads that tolerate a taint but don't constrain where they land (no
-nodeSelector and no required node affinity), so they may schedule onto general
-nodes — usually not the intent of a toleration. Checks that need cluster
-node-pool / taint facts are deferred until those Target facts exist.
+  placement  a workload that tolerates a taint but does not constrain where it lands
+             (no nodeSelector and no required node affinity), so it may schedule onto
+             general nodes, which is rarely what the toleration was for
 
-Filter with --severity (Critical|High|Medium|Low), --cluster, and --namespace.`,
+Checks that need a cluster's node pools and taints wait for those facts to be
+recorded on its Target.
+
+Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := only.Validate(); err != nil {
+				return err
+			}
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -59,61 +49,23 @@ Filter with --severity (Critical|High|Medium|Low), --cluster, and --namespace.`,
 			if err != nil {
 				return err
 			}
-			severity, err := kit.ParseScore(severityFilter)
-			if err != nil {
-				return err
-			}
-			report := buildFindingsReport(snap, severity, clusterFilter, namespaceFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
-				return err
-			}
-			printFindingsTable(cmd, report)
-			return nil
+			return kit.RenderFindings(cmd, output, kit.NewFindingsReport(findings(snap), only, snap.Filter))
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&severityFilter, "severity", "", "only findings at this severity: Critical | High | Medium | Low")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
+	kit.AddFindingFlags(cmd, &only, analyzers...)
 	return cmd
 }
 
-func buildFindingsReport(snap *snapshot.Snapshot, severityFilter api.Score, clusterFilter, namespaceFilter string) findingsReport {
-	var report findingsReport
-	report.Filter = snap.Filter
+// findings is every placement finding in the snapshot, in the shared form.
+func findings(snap *snapshot.Snapshot) []kit.Finding {
+	var out []kit.Finding
 	for _, f := range scheduling.Findings(snap.Clusters) {
-		if severityFilter != api.ScoreNone && f.Severity != severityFilter {
-			continue
-		}
-		if clusterFilter != "" && f.Cluster != clusterFilter {
-			continue
-		}
-		if namespaceFilter != "" && f.Namespace != namespaceFilter {
-			continue
-		}
-		report.Findings = append(report.Findings, f)
-		report.Totals.Findings++
-		switch f.Severity {
-		case api.ScoreHigh:
-			report.Totals.High++
-		case api.ScoreMedium:
-			report.Totals.Medium++
-		case api.ScoreLow:
-			report.Totals.Low++
-		}
+		out = append(out, kit.Finding{
+			Severity: f.Severity, Analyzer: f.Analyzer, Cluster: f.Cluster, Namespace: f.Namespace,
+			Kind: f.Kind, Name: f.Name, Space: f.Space, Unit: f.UnitSlug, Message: f.Message,
+		})
 	}
-	return report
-}
-
-func printFindingsTable(cmd *cobra.Command, r findingsReport) {
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEVERITY\tANALYZER\tCLUSTER\tNAMESPACE\tKIND\tNAME\tMESSAGE")
-	for _, f := range r.Findings {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			strings.ToUpper(string(f.Severity)), f.Analyzer, f.Cluster, kit.Dash(f.Namespace), f.Kind, f.Name, f.Message)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d findings (%d high, %d medium, %d low)",
-		r.Totals.Findings, r.Totals.High, r.Totals.Medium, r.Totals.Low))
+	return out
 }

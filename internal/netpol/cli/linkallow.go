@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
-	"github.com/confighub/sdk/managerkit"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -104,14 +102,11 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 				return err
 			}
 
-			if dryRun {
-				if done, err := managerkit.Render(cmd.OutOrStdout(), output, plans); done || err != nil {
-					return err
-				}
-				printAllowPlansTable(cmd, plans)
-				return nil
+			results, err := writeAllowPlans(cmd, client, snap, plans, write.Change(changeDesc, dryRun))
+			if err != nil {
+				return err
 			}
-			return commitAllowPlans(cmd, client, snap, plans, changeDesc, output)
+			return write.ReportMutations(cmd, "allow-from-links", "", dryRun, output, results...)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -301,76 +296,36 @@ func serviceAsWorkload(s *netpol.ServiceEntity) *netpol.WorkloadEntity {
 	}
 }
 
-func printAllowPlansTable(cmd *cobra.Command, plans []allowFromLink) {
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SPACE\tNAMESPACE\tTO\tFROM (sources)\tUNIT")
-	for _, p := range plans {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Space, p.Namespace, p.To, strings.Join(p.Sources, ", "), p.Unit)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d allow policies would be created from Links. Re-run with --commit --change-desc \"…\" to create them.", len(plans)))
-}
-
-// commitAllowPlans creates a new allow Unit per plan, or — when the destination
-// policy already exists (a re-run / consolidation upsert) — adds only the source
-// peers it is missing via set-yq, leaving existing peers untouched. A plan whose
-// policy exists with all sources already present is a no-op.
-func commitAllowPlans(cmd *cobra.Command, client *cubapi.Client, snap *snapshot.Snapshot, plans []allowFromLink, changeDesc, output string) error {
-	type result struct {
-		Space  string `json:"space"`
-		Unit   string `json:"unit"`
-		Action string `json:"action"` // created | updated | unchanged | error
-		Added  int    `json:"added,omitempty"`
-		Error  string `json:"error,omitempty"`
-		// Diffs are what an update did to the policy.
-		Diffs []write.UnitDiff `json:"diffs,omitempty"`
-	}
-	var results []result
-	created, updated, unchanged := 0, 0, 0
+// writeAllowPlans makes a new allow Unit per plan, or, when the destination's
+// policy already exists, adds only the source peers it is missing, leaving the
+// peers it has untouched. A plan whose policy admits every source already
+// changes nothing.
+func writeAllowPlans(cmd *cobra.Command, client *cubapi.Client, snap *snapshot.Snapshot, plans []allowFromLink, ch cubapi.Change) ([]*cubapi.Result, error) {
+	var creations []cub.Creation
+	unchanged := &cubapi.Result{DryRun: ch.DryRun()}
+	results := []*cubapi.Result{unchanged}
 	for _, p := range plans {
 		existing := findPolicy(snap, p.Space, p.Unit)
-		r := result{Space: p.Space, Unit: p.Unit}
-		switch {
-		case existing == nil:
-			if _, err := cub.CreateUnit(cmd.Context(), client, buildUnit(p.dest, p.Unit, changeDesc), p.manifest); err != nil {
-				r.Action, r.Error = "error", err.Error()
-			} else {
-				r.Action = "created"
-				created++
-			}
-		default:
-			newPeers := missingPeers(existing, p.srcWork)
-			if len(newPeers) == 0 {
-				r.Action = "unchanged"
-				unchanged++
-				break
-			}
-			expr := ".spec.ingress[0].from += [" + strings.Join(newPeers, ", ") + "]"
-			if res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.NetworkPolicyResourceType), cub.UnitSelector(p.dest.spaceID, p.Unit), write.Change(changeDesc, false)); err != nil {
-				r.Action, r.Error = "error", err.Error()
-			} else {
-				r.Action, r.Added, r.Diffs = "updated", len(newPeers), write.Diffs(res)
-				updated++
-			}
+		if existing == nil {
+			creations = append(creations, policyCreation(p.dest, p.Unit, p.manifest))
+			continue
 		}
-		results = append(results, r)
-	}
-	if done, err := managerkit.Render(cmd.OutOrStdout(), output, results); done || err != nil {
-		return err
-	}
-	out := cmd.OutOrStdout()
-	for _, r := range results {
-		detail := r.Error
-		if r.Action == "updated" {
-			detail = fmt.Sprintf("+%d source(s)", r.Added)
+		newPeers := missingPeers(existing, p.srcWork)
+		if len(newPeers) == 0 {
+			unchanged.Outcomes = append(unchanged.Outcomes, cubapi.UnitOutcome{
+				UnitID: existing.Origin.UnitID, SpaceSlug: p.Space, UnitSlug: p.Unit, Success: true,
+			})
+			continue
 		}
-		kit.Fprintln(out, fmt.Sprintf("%-9s %s/%s %s", r.Action, r.Space, r.Unit, detail))
+		expr := ".spec.ingress[0].from += [" + strings.Join(newPeers, ", ") + "]"
+		res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.NetworkPolicyResourceType),
+			cub.UnitSelector(p.dest.spaceID, p.Unit), ch)
+		if err != nil {
+			return nil, fmt.Errorf("add sources to %s/%s: %w", p.Space, p.Unit, err)
+		}
+		results = append(results, res)
 	}
-	kit.Fprintln(out, fmt.Sprintf("\n%d created, %d updated, %d unchanged (not applied; apply when ready).", created, updated, unchanged))
-	for _, r := range results {
-		write.WriteUnitDiffs(out, "link-allow", r.Diffs)
-	}
-	return nil
+	return append(results, cub.EnsureUnits(cmd.Context(), client, creations, ch)), nil
 }
 
 // missingPeers returns the from-peer JSON for each source not already admitted

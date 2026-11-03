@@ -58,11 +58,6 @@ func contains(vals []string, v string) bool {
 	return false
 }
 
-// AtLeast reports whether s is at least as severe as threshold.
-func AtLeast(s, threshold api.Score) bool {
-	return api.ScoreToNumber[s] >= api.ScoreToNumber[threshold]
-}
-
 // Finding is one autoscaling issue.
 type Finding struct {
 	Severity  api.Score `json:"severity"`
@@ -88,18 +83,18 @@ func autoscalerForWorkload(w *WorkloadEntity, autoscalers []*Autoscaler) *Autosc
 }
 
 // Findings computes autoscaling findings across the fleet, most-severe first:
-//   - autoscaler-pinned (medium): an HPA/ScaledObject with min == max (can't scale)
+//   - pinned-autoscaler (medium): an HPA/ScaledObject with min == max (can't scale)
 //   - pdb-blocks-min-scale (medium): a PDB whose minAvailable >= the autoscaler's
 //     minReplicas, so at minimum scale no pod may be voluntarily evicted (the
 //     cross-resource HPA-vs-PDB check)
-//   - no-autoscaler (low): a Deployment/StatefulSet not targeted by any autoscaler
+//   - missing-autoscaler (low): a Deployment/StatefulSet not targeted by any autoscaler
 func Findings(clusters map[string]*ClusterAutoscale) []Finding {
 	var out []Finding
 	for _, c := range clusters {
 		for _, a := range c.Autoscalers {
 			if a.Pinned() {
 				out = append(out, Finding{
-					Severity: api.ScoreMedium, Analyzer: "autoscaler-pinned",
+					Severity: api.ScoreMedium, Analyzer: "pinned-autoscaler",
 					Cluster: a.Origin.Cluster, Namespace: a.Namespace, Kind: string(a.Kind), Name: a.Name,
 					Space: a.Origin.Space, UnitSlug: a.Origin.UnitSlug,
 					Message: fmt.Sprintf("min == max (%d) — the autoscaler can't actually scale", *a.Min),
@@ -110,7 +105,7 @@ func Findings(clusters map[string]*ClusterAutoscale) []Finding {
 			a := autoscalerForWorkload(w, c.Autoscalers)
 			if a == nil {
 				out = append(out, Finding{
-					Severity: api.ScoreLow, Analyzer: "no-autoscaler",
+					Severity: api.ScoreLow, Analyzer: "missing-autoscaler",
 					Cluster: w.Origin.Cluster, Namespace: w.Namespace, Kind: w.Kind, Name: w.Name,
 					Space: w.Origin.Space, UnitSlug: w.Origin.UnitSlug,
 					Message: "no HorizontalPodAutoscaler or ScaledObject targets this workload",

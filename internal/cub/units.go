@@ -5,6 +5,7 @@ package cub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -37,8 +38,10 @@ func ResolveUnit(ctx context.Context, c *cubapi.Client, spaceSlug, unitSlug stri
 			return UnitRef{SpaceID: sp.Space.SpaceID, SpaceSlug: spaceSlug, UnitID: eu.Unit.UnitID, UnitSlug: unitSlug}, nil
 		}
 	}
-	return UnitRef{}, fmt.Errorf("unit %q not found in space %q", unitSlug, spaceSlug)
+	return UnitRef{}, fmt.Errorf("unit %q not found in space %q: %w", unitSlug, spaceSlug, errUnitNotFound)
 }
+
+var errUnitNotFound = errors.New("no such unit")
 
 // rawBodyErr reports failure for an endpoint whose success body is the configuration
 // itself. cubapi.IsAPIError cannot be used for those: it treats a nil JSON200 field as a
@@ -59,12 +62,14 @@ func rawBodyErr(err error, resp interface {
 	return nil
 }
 
-// GetUnitData returns a Unit's config data as text. Configuration is not a field of a
-// Unit — it is read through the Unit's own data endpoint.
-func GetUnitData(ctx context.Context, c *cubapi.Client, ref UnitRef) (string, error) {
+// GetUnitData returns a Unit's config data as text, and the ETag it was served
+// with, which a write made from it passes to UpdateUnitData so that it cannot
+// land over a write made in between. Configuration is not a field of a Unit — it
+// is read through the Unit's own data endpoint.
+func GetUnitData(ctx context.Context, c *cubapi.Client, ref UnitRef) (data, etag string, err error) {
 	res, err := c.API.DownloadUnitDataWithResponse(ctx, ref.SpaceID, ref.UnitID)
 	if err := rawBodyErr(err, res); err != nil {
-		return "", fmt.Errorf("get data for unit %s/%s: %w", ref.SpaceSlug, ref.UnitSlug, err)
+		return "", "", fmt.Errorf("get data for unit %s/%s: %w", ref.SpaceSlug, ref.UnitSlug, err)
 	}
-	return string(res.Body), nil
+	return string(res.Body), res.HTTPResponse.Header.Get("ETag"), nil
 }

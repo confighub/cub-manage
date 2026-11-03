@@ -48,7 +48,7 @@ func newSnapshotCmd() *cobra.Command {
 	var filter kit.FilterFlags
 	cmd := &cobra.Command{
 		Use:   "snapshot",
-		Short: "Fleet RBAC inventory: per-cluster role/binding/SA and Unit counts",
+		Short: "Fleet inventory: per-cluster role / binding / ServiceAccount and Unit counts",
 		Long: `snapshot loads the fleet-wide Kubernetes RBAC view from ConfigHub and reports a
 per-cluster inventory: Role/ClusterRole/RoleBinding/ClusterRoleBinding and
 ServiceAccount counts, plus how many Units are gated or unreleased.

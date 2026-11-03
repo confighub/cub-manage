@@ -4,12 +4,6 @@
 package cli
 
 import (
-	"fmt"
-	"text/tabwriter"
-
-	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
-
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -18,39 +12,34 @@ import (
 	"github.com/confighub/cub-manage/internal/nsmanager/snapshot"
 )
 
-type findingsReport struct {
-	Findings []nsmanager.Finding `json:"findings"`
-	Totals   struct {
-		Total      int               `json:"total"`
-		BySeverity map[api.Score]int `json:"bySeverity"`
-		ByAnalyzer map[string]int    `json:"byAnalyzer"`
-	} `json:"totals"`
-	Filter string `json:"filter,omitempty"`
-}
+// analyzers are the analyzers findings runs, which --analyzer names.
+var analyzers = []string{"duplicate-namespace", "missing-namespace-object", "missing-pod-security", "namespace-name-inconsistent", "pod-security-inconsistent"}
 
 func newFindingsCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var severityFilter, analyzerFilter, clusterFilter string
+	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Namespace-governance findings across the fleet (envelope gaps, duplicates, inconsistency)",
-		Long: `findings runs the v1 analyzer set over the fleet:
+		Short: "Report namespace governance issues across the fleet, most severe first",
+		Long: `findings analyzes the fleet and reports namespace issues, most severe first:
 
-  missing-pod-security         Namespace object with no pod-security enforce label
-  missing-namespace-object     occupied namespace with no v1/Namespace Unit (built-in ones excepted)
-  duplicate-namespace          two Namespace Units collide on name + Target (one cluster)
-  namespace-name-inconsistent  a component runs a workload in different namespaces on different clusters
-  pod-security-inconsistent    a component's pod-security level varies across its variants
+  duplicate-namespace          (high) two Namespace Units with one name on one Target
+  missing-namespace-object     (medium) a namespace with workloads but no v1/Namespace Unit
+                               (built-in namespaces excepted)
+  missing-pod-security         (medium) a Namespace with no pod-security enforce label
+  namespace-name-inconsistent  (medium) a Component that runs a workload in different
+                               namespaces on different clusters
+  pod-security-inconsistent    (low) a Component whose pod-security level differs between
+                               its variants
 
-These are properties of the whole set of resources across the fleet — the read a
-per-resource validator or a runtime tenancy controller cannot do.
+These are properties of the whole set of resources across the fleet, which neither a
+per-resource validator nor a tenancy controller in one cluster can see.
 
-Filter with --severity (Critical|High|Medium|Low), --analyzer, --cluster, and --component.`,
+Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			severity, err := kit.ParseScore(severityFilter)
-			if err != nil {
+			if err := only.Validate(); err != nil {
 				return err
 			}
 			client, err := cub.Preflight(cmd.Context())
@@ -65,54 +54,27 @@ Filter with --severity (Critical|High|Medium|Low), --analyzer, --cluster, and --
 			if err != nil {
 				return err
 			}
-			report := buildFindingsReport(snap, severity, analyzerFilter, clusterFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
-				return err
-			}
-			printFindingsTable(cmd, report)
-			return nil
+			return kit.RenderFindings(cmd, output, kit.NewFindingsReport(findings(snap), only, snap.Filter))
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&severityFilter, "severity", "", "filter by severity: Critical | High | Medium | Low")
-	cmd.Flags().StringVar(&analyzerFilter, "analyzer", "", "filter by analyzer name")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "filter by cluster (Target slug, or None for Units whose Space has no release Target)")
+	kit.AddFindingFlags(cmd, &only, analyzers...)
 	return cmd
 }
 
-func buildFindingsReport(snap *snapshot.Snapshot, severityFilter api.Score, analyzerFilter, clusterFilter string) findingsReport {
-	var report findingsReport
-	report.Totals.BySeverity = map[api.Score]int{}
-	report.Totals.ByAnalyzer = map[string]int{}
+// findings is every namespace finding in the snapshot, in the shared form.
+func findings(snap *snapshot.Snapshot) []kit.Finding {
+	var out []kit.Finding
 	for _, f := range nsmanager.AnalyzeFindings(snap.Clusters) {
-		if severityFilter != api.ScoreNone && f.Severity != severityFilter {
-			continue
+		x := kit.Finding{
+			Severity: f.Severity, Analyzer: f.Analyzer, Cluster: f.Cluster, Namespace: f.Namespace,
+			Component: f.Component, Message: f.Message,
 		}
-		if analyzerFilter != "" && f.Analyzer != analyzerFilter {
-			continue
+		if f.Namespace != "" {
+			x.Kind, x.Name = "Namespace", f.Namespace
 		}
-		if clusterFilter != "" && f.Cluster != clusterFilter {
-			continue
-		}
-		report.Findings = append(report.Findings, f)
-		report.Totals.BySeverity[f.Severity]++
-		report.Totals.ByAnalyzer[f.Analyzer]++
+		out = append(out, x)
 	}
-	report.Totals.Total = len(report.Findings)
-	report.Filter = snap.Filter
-	return report
-}
-
-func printFindingsTable(cmd *cobra.Command, r findingsReport) {
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEVERITY\tANALYZER\tCLUSTER\tCOMPONENT\tNAMESPACE\tMESSAGE")
-	for _, f := range r.Findings {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			f.Severity, f.Analyzer, kit.Dash(f.Cluster), kit.Dash(f.Component), kit.Dash(f.Namespace), f.Message)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d findings (%d high, %d medium, %d low)",
-		r.Totals.Total, r.Totals.BySeverity[api.ScoreHigh],
-		r.Totals.BySeverity[api.ScoreMedium], r.Totals.BySeverity[api.ScoreLow]))
+	return out
 }

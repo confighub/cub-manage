@@ -2,16 +2,16 @@
 name: netpol-guardrails
 description: 'Install, inspect, and feed the NetworkPolicy guardrail policy pack in ConfigHub with the cub manage netpol CLI — making NetworkPolicy findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our network-policy rules", "block allow-all policies", "warn on egress to 0.0.0.0/0", "set up NetworkPolicy guardrails", "which Units have NetworkPolicy warnings?", "annotate the uncovered Units so they get flagged". Installs Warn=true vet-celexpr Triggers in the netpol guardrail group (annotate-then-validate for coverage); dry-run by default. Not for one-off checks (use netpol-findings) or fixing config (use netpol-fix).'
 phase: act
-allowed-tools: Bash(cub manage netpol --help) Bash(cub manage netpol * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage netpol findings *) Bash(cub manage netpol guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage netpol guardrails annotate *)
+allowed-tools: Bash(cub manage netpol --help) Bash(cub manage netpol * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage netpol findings *) Bash(cub manage netpol guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage netpol guardrails annotate *) Bash(cub manage guardrails exception list *)
 ---
 
 # netpol-guardrails
 
-Make NetworkPolicy findings **enforced**, not advisory. Installs a pack of validation policies (defined once in a policy Space, enforced in each Space that opts into the `netpol` group) and the annotate-then-validate loop that turns a coverage finding into a ValidationWarning.
+Make NetworkPolicy findings **enforced**, not advisory. Installs a pack of validation policies (defined once in a policy Space, enforced in each Space that opts into the `netpol` group) and the annotate-then-validate loop that turns a workload no ingress policy selects into a ValidationWarning.
 
 ## Why this matters
 
-The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware coverage check uses **annotate-then-validate** — `guardrails annotate` writes a finding annotation onto flagged Units, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
+The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware coverage check uses **annotate-then-validate** — `guardrails annotate` writes a `netpol.confighub.com/ingress-coverage` annotation onto each workload Unit no ingress NetworkPolicy selects, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
 
 ## The pack
 
@@ -19,14 +19,15 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
 | --- | --- |
 | `netpol-no-allow-all-ingress` | ingress rules must name their sources (no empty `from`) |
 | `netpol-no-wide-cidr-egress` | no egress to `0.0.0.0/0` |
-| `netpol-coverage-finding` | warns while a `netpol.confighub.com/finding` annotation is present |
+| `netpol-no-metadata-egress` | no egress ipBlock that reaches the cloud metadata IP `169.254.169.254` without excepting it (fix: the `netpol-except-metadata` profile) |
+| `netpol-ingress-coverage` | warns while a `netpol.confighub.com/ingress-coverage` annotation is present: a workload no ingress NetworkPolicy selects |
 
 ## When to use
 
 - "Enforce our NetworkPolicy rules." / "set up NetworkPolicy guardrails."
-- "Block / warn on allow-all policies / egress to 0.0.0.0/0."
+- "Block / warn on allow-all policies / egress to 0.0.0.0/0 / egress to the metadata IP."
 - "Which Units have NetworkPolicy warnings or gates?" → `cub manage guardrails status`.
-- "Annotate the uncovered Units so they're flagged." → `guardrails annotate`.
+- "Flag the workloads no ingress policy selects." → `guardrails annotate`.
 
 ## Do not load for
 
@@ -50,11 +51,11 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
    cub manage netpol guardrails install --where-space "Slug LIKE 'apptique-%'" --commit
    ```
    Spaces with a pre-existing custom `WhereTrigger` are skipped (not clobbered) and reported; add the `netpol` group to their `WhereTrigger` deliberately (see **triggers-and-applygates**).
-3. **Annotate** coverage findings so the coverage Trigger flags them (dry-run by default):
+3. **Annotate** the workloads no ingress policy selects, so the coverage Trigger flags them (dry-run by default):
    ```bash
-   cub manage netpol guardrails annotate --commit --change-desc "Flag uncovered Units. User prompt: ..."
+   cub manage netpol guardrails annotate --commit --change-desc "Flag workloads no ingress policy selects. User prompt: ..."
    ```
-   Re-run after fixing config — a clean Unit produces no finding, so its annotation is cleared.
+   Re-run after adding policies — a covered workload's annotation is cleared.
 4. **Inspect** what's flagged:
    ```bash
    cub manage guardrails status -o table
@@ -71,7 +72,7 @@ metadata:
     exceptions.guardrails.confighub.com/netpol-no-wide-cidr-egress: "egress gateway; reaches the internet by design"
 ```
 
-That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub function set -- set-annotation` on the Unit, with `--where-resource` naming the one resource, as in `ConfigHub.ResourceName = '<namespace>/<name>'`, or `'/<name>'` for a cluster-scoped one), not a way to silence a warning.
+That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub manage guardrails exception add <space>/<unit> --rule <rule> --reason "<why>"`, with `--resource <type>/[<namespace>/]<name>`, as in `apps/v1/Deployment/shop/web`, when the Unit holds more than one resource), not a way to silence a warning. `cub manage guardrails exception list` shows every resource excepted from a rule and the reason recorded; `exception remove` takes one away.
 
 ## Stop conditions
 

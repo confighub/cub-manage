@@ -5,7 +5,7 @@
       "id": 1,
       "name": "ensure-servicemonitor",
       "prompt": "Add a ServiceMonitor so the frontend service in apptique-dev gets scraped.",
-      "expected_output": "Runs `cub manage preflight`, previews `cub manage observability ensure-servicemonitor apptique-dev/frontend` (dry-run, shows the derived manifest), then commits with --commit --change-desc, creating a new ServiceMonitor Unit (not published).",
+      "expected_output": "Runs `cub manage preflight`, previews `cub manage observability ensure-servicemonitor apptique-dev/frontend` (dry-run, shows the ServiceMonitor Unit it would create and its diff), then commits with --commit --change-desc, creating a new ServiceMonitor Unit (not published).",
       "files": []
     },
     {

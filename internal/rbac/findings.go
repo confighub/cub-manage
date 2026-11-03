@@ -63,7 +63,7 @@ func wildcardFindings(cluster *ClusterRbac) []Finding {
 			}
 		}
 		if len(parts) > 0 {
-			out = append(out, newFinding("wildcard-rules", api.ScoreHigh, role.Origin, role.Kind, role.Name,
+			out = append(out, newFinding("wildcard-rule", api.ScoreHigh, role.Origin, role.Kind, role.Name,
 				fmt.Sprintf("Wildcard permissions (%s). Enumerate the specific verbs/resources needed.", strings.Join(parts, "; ")),
 				role.Namespace))
 		}
@@ -85,7 +85,7 @@ func escalationFindings(cluster *ClusterRbac) []Finding {
 			}
 		}
 		if len(verbs) > 0 {
-			out = append(out, newFinding("privilege-escalation-verbs", api.ScoreHigh, role.Origin, role.Kind, role.Name,
+			out = append(out, newFinding("privilege-escalation-verb", api.ScoreHigh, role.Origin, role.Kind, role.Name,
 				fmt.Sprintf("Grants privilege-escalation verb(s): %s.", strings.Join(verbs, ", ")),
 				role.Namespace))
 		}
@@ -133,7 +133,7 @@ func riskyGrantFindings(cluster *ClusterRbac) []Finding {
 			}
 		}
 		if len(risks) > 0 {
-			out = append(out, newFinding("risky-grants", api.ScoreMedium, role.Origin, role.Kind, role.Name,
+			out = append(out, newFinding("risky-grant", api.ScoreMedium, role.Origin, role.Kind, role.Name,
 				fmt.Sprintf("Sensitive access: %s.", strings.Join(risks, ", ")),
 				role.Namespace))
 		}
@@ -170,7 +170,7 @@ func clusterAdminFindings(cluster *ClusterRbac) []Finding {
 		if binding.Kind == "ClusterRoleBinding" {
 			severity = api.ScoreHigh
 		}
-		out = append(out, newFinding("cluster-admin-bindings", severity, binding.Origin, binding.Kind, binding.Name,
+		out = append(out, newFinding("cluster-admin-binding", severity, binding.Origin, binding.Kind, binding.Name,
 			fmt.Sprintf("Grants superuser (%s) to: %s.", binding.RoleRef.Name, subjects),
 			binding.Namespace))
 	}
@@ -186,7 +186,7 @@ func orphanedBindingFindings(cluster *ClusterRbac) []Finding {
 		if IsBuiltinRoleName(binding.RoleRef.Name) {
 			continue
 		}
-		out = append(out, newFinding("orphaned-bindings", api.ScoreMedium, binding.Origin, binding.Kind, binding.Name,
+		out = append(out, newFinding("orphaned-binding", api.ScoreMedium, binding.Origin, binding.Kind, binding.Name,
 			fmt.Sprintf("References %s %q, which does not exist on this cluster. Remove the binding or restore the role.", binding.RoleRef.Kind, binding.RoleRef.Name),
 			binding.Namespace))
 	}
@@ -207,7 +207,7 @@ func unboundServiceAccountFindings(cluster *ClusterRbac) []Finding {
 		if bound[sa.Namespace+"/"+sa.Name] {
 			continue
 		}
-		out = append(out, newFinding("unbound-service-accounts", api.ScoreLow, sa.Origin, "ServiceAccount", sa.Name,
+		out = append(out, newFinding("unbound-service-account", api.ScoreLow, sa.Origin, "ServiceAccount", sa.Name,
 			"ServiceAccount has no role bindings in this snapshot — possibly unused.",
 			sa.Namespace))
 	}

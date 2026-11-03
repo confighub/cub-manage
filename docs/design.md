@@ -98,20 +98,34 @@ others — so comments and formatting are preserved and the configuration is nev
 A Unit can hold several resources, and a function runs on every one of them unless told
 otherwise, so a write that edits one kind of resource names its types in the invocation's
 `WhereResource`; a profile stores it with the profile.
-A new resource (a PodDisruptionBudget, a NetworkPolicy, a ServiceMonitor) is created as a new Unit
-whose content is derived from what it has to match. The one exception is `autoscale convert-keda`,
-which runs the `convert-hpa-to-keda` function in-process and writes back the result.
+A new resource (a PodDisruptionBudget, a NetworkPolicy, a ServiceMonitor) is made as a Unit of its
+own, whose content is derived from what it has to match; the command creates the Unit, or brings it
+up to date if it exists, so running it again changes nothing. The one exception to server-side
+functions is `autoscale convert-keda`, which runs the `convert-hpa-to-keda` function in-process and
+writes back the result.
+
+Every write reports the same way, whether it edited Units or created them: one row per Unit, what
+changed in each, path by path, and after a commit, that nothing is released until the Space is
+(`cub release publish <space>`).
 
 **Profiles.** A profile is a named, reusable edit: a ConfigHub Invocation that wraps a function
 with preset arguments and exposes what varies as parameters (a resource tier's container, a node
-pool's name). Every group's profiles live in one library in the shared `common` Space. `profile
-apply` applies one to a Unit; a group's `fleet-edit --profile` applies one to every Unit a filter
-selects, restricted to the resource kinds that group manages.
+pool's name). Every group's profiles live in one library in the shared `common` Space, and their
+slugs start with the group they belong to where the edit is not already named for what it does
+(`rbac-add-verb`, `netpol-allow-dns`). `profile apply` applies one to a Unit; a group's `fleet-edit
+--profile` applies one to every Unit a filter selects, restricted to the resource kinds that group
+manages. It refuses to run without a selector, `--where` or a label shorthand, so that a fleet-wide
+change is always a deliberate one.
 
 **Guardrails.** Each group has a pack of validating Triggers, defined once in the `common` Space
 and selected by each Space, or Target, that opts into the group. Rules install as warnings and are
-made blocking with `cub trigger update <slug> --space common --unwarn`. A resource is excepted
-from one rule by the annotation `exceptions.guardrails.confighub.com/<rule>`, whose value says why.
+made blocking with `cub trigger update <slug> --space common --unwarn`, which installing again
+leaves in place. A resource is excepted from one rule by the annotation
+`exceptions.guardrails.confighub.com/<rule>`, whose value says why. `cub manage guardrails
+exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
+takes `--resource` whenever the Unit holds more than one, and `list` reads every exception back
+with its reason, and counts the exceptions to each rule, including the rules that have none.
+Rules about every resource rather than one group's kinds are the tool's: the `schema` group, installed with `cub manage guardrails install`.
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
 as `vet-images`. A rule about a set cannot be expressed that way: a Trigger sees one Unit, so it
@@ -163,7 +177,10 @@ Tool commands are the ones that would otherwise be identical in every group:
 | --------------------------------------- | ---------------------------------------------------------------------------- |
 | `preflight`                             | Verify the ConfigHub session against the server                              |
 | `version`                               | Print the version                                                            |
-| `guardrails status`                     | The Units any guardrail has marked, whichever pack the rule belongs to       |
+| `guardrails install`                    | Install the tool-level `schema` group, whose rule is about every resource    |
+| `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to      |
+| `guardrails exception add` / `remove`   | Except one resource from one rule of any group, with the reason; remove it   |
+| `guardrails exception list`             | Every resource excepted from a rule, with its reason, and the count per rule |
 | `profile install` / `list` / `apply`    | Seed every group's profiles into the shared library; list them; apply one    |
 
 A group's help lists its read commands, then its write commands, under those two headings.
@@ -175,10 +192,16 @@ A group's help lists its read commands, then its write commands, under those two
 | `snapshot`               | read  | Per-cluster inventory: counts of the group's resource kinds, Units, gated and unreleased Units |
 | `list`                   | read  | Enumerate the group's resources across the fleet, one row per resource                        |
 | `findings`               | read  | Severity-ranked findings from every analyzer the group has                                     |
+| `fleet-edit --profile`   | write | Apply one of the library's profiles to the group's kinds in every Unit a selector names        |
 | `guardrails install`     | write | Plan, or with `--commit` install, the group's pack and opt Spaces into it                      |
 
-A group whose pack has a rule about a set also has `guardrails annotate` (§4). A group with
-profiles also has `fleet-edit --profile <slug>`.
+A group whose pack has a rule about a set also has `guardrails annotate` (§4).
+
+Every `list` prints the same row — cluster, kind, name, namespace, Space, Unit — and `autoscale`'s
+adds the autoscaler's target and replica range. Every `findings` prints the same report: findings of
+one shape (severity, analyzer, cluster, namespace, kind, name, Space, Unit, message; `namespace`'s
+consistency findings name a Component instead of a resource), most severe first, with totals by
+severity and by analyzer.
 
 Each group adds its own analyses (for example `who-can`, `coverage`, `readiness`, `placement`) and
 its own fixes.
@@ -199,10 +222,18 @@ Fleet scope, on every read command and every bulk write:
 All of these are joined with `AND`.
 
 Display filters, applied to what was read rather than sent to the server: `--cluster` (a Target
-slug, or `None`) and `--namespace`. `--cluster` stays client-side because a server-side
-`Target.Slug` predicate would drop the Units that have no Target.
+slug, or `None`) and `--namespace`, on every command that reports resources. `--cluster` stays
+client-side because a server-side `Target.Slug` predicate would drop the Units that have no Target.
 
-Findings: `--severity` (only findings of that severity) and `--analyzer`.
+Lists: `--kind`. Findings: `--severity` (only findings of that severity) and `--analyzer` (a
+comma-separated list of the group's analyzers; any other name is an error rather than an empty
+report). A report narrowed
+to the rows with a problem: `--issues-only`.
+
+A write selects what it changes the way a read selects what it reports: the fleet scope and the
+display filters. A command that needs every resource to judge the ones it changes reads them all and
+applies the scope to what it writes: `namespace apply-envelope` judges a namespace by all of its
+workloads, wherever their Units are, and labels the namespaces the scope selects.
 
 Output: `-o`/`--output` on every command — `json` (the default), `yaml`, `table`, `jq=<expr>`,
 `yq=<expr>`.
@@ -213,44 +244,22 @@ Writes: `--commit`, without which a write is a dry run, and `--change-desc`, req
 
 - A command that writes to one Unit takes it as `<space>/<unit>`.
 - A command that creates a Unit derives what it can (the Space from the namespace's workloads, a
-  selector from the workload's pod labels) and takes `--space` only to disambiguate.
-- Commands that add something that may already exist are named `ensure-<thing>` and are
-  idempotent; commands that set fields are named `set-<field>`.
-- A bulk write is `fleet-edit`.
+  selector from the workload's pod labels) and takes `--space` only to disambiguate. It takes what
+  it is creating from, which is not a Unit: `ensure-pdb` a workload's `<space>/<unit>`, `netpol
+  default-deny` a namespace, `netpol allow` two workloads. Without its argument, `default-deny`
+  covers every namespace in scope that needs one.
+- Every command that creates a Unit is idempotent: it creates the Unit, or brings an existing one
+  up to date.
+- Commands that add something that may already exist are named `ensure-<thing>`; commands that set
+  fields are named `set-<field>`.
+- A reusable edit is a profile; the bulk form of any profile is `fleet-edit`.
 - A flag that narrows a report to the rows with a problem is `--issues-only`.
 - Guardrail rule slugs start with the group name: `<group>-<rule>`.
-- Finding annotations are `<group>.confighub.com/<finding>`.
-
-### 5.5 Where the surface does not yet follow the conventions
-
-The command groups were built separately and consolidated into this tool afterwards. These are the
-places they still differ, with the change that would bring each into line. Existing guardrail rule
-slugs and finding annotations are already installed in organizations, so renaming them needs a
-migration (install the new rule, remove the old one) rather than just a new release.
-
-| Group           | Today                                                                                      | Proposed                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| `autoscale`     | `findings --min-severity` (that severity and above), no `--analyzer`; the other groups' `--severity` is an exact match | one flag with one meaning everywhere, and `--analyzer`                         |
-| `autoscale`     | `list` has no `--kind`                                                                     | `--kind`                                                                       |
-| `scheduling`    | `findings` has no `--analyzer`                                                             | `--analyzer`                                                                   |
-| `rbac`          | `findings`, `who-can`, `access` have no `--cluster` / `--namespace`                        | add them                                                                       |
-| `namespace`     | `findings` has no `--namespace`                                                            | add it                                                                         |
-| `namespace`     | `consistency --component-name` (a display filter on the Component slug) beside `--component` (a server-side scope) | drop `--component-name`; `--component` already scopes to one Component |
-| several         | Findings severity is printed `HIGH` / `MEDIUM` by `rbac`, `workload`, `scheduling` and `observability`, `High` / `Medium` by the others; the summary line has three shapes (`8 findings`; `6 findings (5 high, 1 medium, 0 low)`; `(high=0 medium=2 low=4)`) | one rendering of a finding, shared |
-| several         | A command that creates a Unit (`ensure-pdb`, `ensure-servicemonitor`, `default-deny`) reports a sentence; one that edits reports the shared table. `convert-keda` prints a log line to stderr | the shared write report for both; no log output |
-| several         | After a write: "Publish the Space to deploy", "Not published — rolling out is a separate `cub release publish`", "It is not applied until you apply it" | one sentence, in the shared write report |
-| several         | `--incomplete-only`, `--inconsistent-only`, `--failing-only`, `--unconstrained-only`, `--uncovered-only`, `--missing-only`, `--issues-only` | `--issues-only` everywhere                    |
-| `rbac`          | `edit <op> <space>/<unit>` and `fleet-edit <op>`, with their own Invocation library (`edit install`, in its own Space) | the edits become profiles in the shared library: `profile apply`, `fleet-edit --profile` |
-| `rbac`          | `edit` subcommands have no `-o`                                                            | `-o`, reporting through the shared write report                                |
-| `netpol`        | `fleet default-deny`                                                                       | `fleet-edit`, or `default-deny --where …` for the uncovered namespaces it selects |
-| `netpol`        | `fix dns\|metadata <space>/<unit>` also takes the fleet-scope flags                        | drop them, or make `fix` a bulk command and say so                             |
-| `netpol`        | `default-deny <namespace>`, `allow <src> <dst>` take names, not `<space>/<unit>`           | keep (they create Units), and document as the creating-command form (§5.4)    |
-| `namespace`     | `apply-envelope` selects with `--space` / `--cluster` / `--namespace` beside the fleet-scope flags | one selection model                                                    |
-| `scheduling`    | rule `workload-toleration-needs-placement`                                                 | `scheduling-toleration-needs-placement`                                        |
-| `rbac`          | rules `no-rbac-wildcards`, `no-rbac-privilege-escalation`, `no-cluster-admin-binding`      | `rbac-no-wildcards`, `rbac-no-privilege-escalation`, `rbac-no-cluster-admin-binding` |
-| `autoscale`     | rule `autoscaler-not-pinned`; rule `schema-valid`, which validates every resource kind     | `autoscale-not-pinned`; schema validation moves to a tool-level pack (§7.6)    |
-| `observability` | rule `servicemonitor-coverage`; annotation `observability.confighub.com/coverage`          | `observability-servicemonitor-coverage`                                        |
-| `namespace`, `rbac`, `netpol` | no profiles                                                                  | profiles where a fix is a reusable edit                                        |
+- Analyzer names are singular and name what is wrong: `orphaned-binding`, `missing-pdb`,
+  `uncovered-ingress`.
+- A finding annotation is named for the gap it records, and so is the rule that reads it:
+  `<group>.confighub.com/<gap>-coverage` and `<group>-<gap>-coverage`, as in
+  `workload.confighub.com/pdb-coverage` and `workload-pdb-coverage`.
 
 ## 6. The command groups
 
@@ -277,7 +286,9 @@ lowering one, and labels the namespace's workloads with it so the `namespace-pod
 rule can hold each workload to its namespace's level before it reaches a cluster; labeling a
 workload's metadata does not restart it. `backfill` clones a base Space's Units into an existing
 Space and re-homes them with `set-namespace`, which also rewrites RoleBinding subject namespaces
-and Service DNS references.
+and Service DNS references. The `namespace-set` profile is the same function as a reusable edit: with
+`fleet-edit --component <c>`, it moves every variant of a Component to one namespace, the fix for an
+inconsistent namespace name.
 
 A namespace maps to a Space, which holds the namespace's workloads as well as the Namespace
 object. The namespace name of a component is its Component's slug, normalized, and the same in
@@ -294,8 +305,10 @@ Analyses: `who-can <verb> <resource>` and its inverse `access <subject>`. Findin
 grants, privilege-escalation verbs (`escalate`, `bind`, `impersonate`), risky grants,
 cluster-admin bindings, bindings to roles that don't exist, and ServiceAccounts nothing binds.
 
-Fixes: structured edits — add or remove a verb on a rule, a subject on a binding — as
-parameterized `set-yq` Invocations, so the server applies them to the YAML in place.
+Fixes: the `rbac-*` profiles, which add or remove a verb on a rule, a User or Group on a binding,
+or a ServiceAccount on a binding. Each is a parameterized `set-yq` edit, so the server applies it to
+the YAML in place, and each add is idempotent. `profile apply` makes one edit; `rbac fleet-edit`
+makes it everywhere a persona role or binding is replicated.
 
 ### 6.3 netpol
 
@@ -310,9 +323,14 @@ default-deny ingress, a workload no ingress policy selects, an allow-all policy,
 the cloud metadata address `169.254.169.254`, and an egress allow with no matching ingress allow
 at the destination.
 
-Fixes: `default-deny` (with `--egress`, also denying egress but allowing DNS, since a bare egress
-default-deny breaks name resolution), `allow`, `fix dns|metadata` on an existing policy, and
-`allow-from-links`, which derives ingress allows from the dependency graph that ConfigHub Links
+Fixes: `default-deny` for a namespace, or for every namespace in scope that lacks one (with
+`--egress`, also denying egress but allowing DNS, since a bare egress default-deny breaks name
+resolution). A default-deny is any policy that selects every pod, isolates the direction and has
+no rule admitting all traffic, whatever its name, so the command leaves a namespace that has one
+alone; when another Unit's policy denies ingress, `--egress` adds the egress half in a policy of
+its own rather than a second policy of the same name. `allow`; the `netpol-allow-dns` and `netpol-except-metadata` profiles for existing
+policies, each of which changes only the policies that need it; and `allow-from-links`, which
+derives ingress allows from the dependency graph that ConfigHub Links
 record: for each consumer → producer Link, an allow on the producer admitting the consumer. It
 writes one policy per destination listing every admitted source, the usual Kubernetes shape, and
 re-running adds only the missing sources. `--per-edge` writes one policy per Link instead.
@@ -335,8 +353,11 @@ and PodDisruptionBudgets, and scores each workload on five dimensions:
   it and does not block every eviction, and pod anti-affinity or topology spread so that one node
   or zone cannot take every replica.
 
+Each check a workload fails is a finding whose analyzer names what is wrong (`missing-run-as-non-root`,
+`missing-memory-limit`, `missing-pdb`), its severity set by its dimension.
+
 Analyses: `readiness` (the scorecard) and `availability`. Fixes: `harden`, `set-resources`,
-`set-probes`, `ensure-pdb` (a new PodDisruptionBudget Unit whose selector is the workload's pod
+`set-probes`, `ensure-pdb` (a PodDisruptionBudget Unit whose selector is the workload's pod
 labels), `ensure-spread`, and profiles for each.
 
 ### 6.5 scheduling
@@ -438,10 +459,11 @@ one edit that adds one container.
 
 ### 7.6 Rules that are not any group's
 
-`autoscale`'s pack includes `schema-valid`, which runs `vet-schemas` on every resource, so that the
-KEDA ScaledObjects `convert-keda` writes are validated against their schema. Schema validation is
-not about autoscaling, and a Space that opts into the `autoscale` group should not get it for every
-other kind. It belongs in a tool-level pack, opted into on its own.
+`schema-valid` runs `vet-schemas` on every resource; among other things, it validates the KEDA
+ScaledObjects `convert-keda` writes against their schema. Schema validation is not about any one
+group's kinds, so it is the tool-level `schema` group, installed with `cub manage guardrails install`
+and opted into on its own, rather than part of the pack of a group a Space opts into for other
+reasons.
 
 ### 7.7 Gaps between groups
 
@@ -474,8 +496,8 @@ other kind. It belongs in a tool-level pack, opted into on its own.
 - **One snapshot.** Each group reads its own resource kinds, and several read the same ones
   (workloads, Namespaces, PodDisruptionBudgets). One shared snapshot would make cross-group
   analysis (§7.4, §7.7) natural and a fleet-wide report cheap.
-- **Tool-level `findings` and `guardrails install`.** Every group's findings in one ranked list,
-  and every pack opted into in one command.
+- **Tool-level `findings`, and every pack in one install.** Every group's findings in one ranked
+  list, and every group's pack opted into in one command.
 - **Validation over a set of Units.** Annotate-then-validate stands in for a validating function
   that can see more than one Unit. With one, the set rules — PodDisruptionBudget, NetworkPolicy and
   ServiceMonitor coverage — become ordinary guardrails, and the existing per-object validators'

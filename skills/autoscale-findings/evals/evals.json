@@ -12,7 +12,7 @@
       "id": 2,
       "name": "pinned",
       "prompt": "Which of our HPAs can't actually scale?",
-      "expected_output": "Runs `cub manage autoscale findings` and reports the autoscaler-pinned analyzer (min == max).",
+      "expected_output": "Runs `cub manage autoscale findings` and reports the pinned-autoscaler analyzer (min == max).",
       "files": []
     },
     {

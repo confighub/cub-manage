@@ -77,6 +77,9 @@ cub manage profile install                                   # seed the shared p
 cub manage workload fleet-edit --profile harden-restricted --environment dev
 cub manage workload guardrails install --commit
 cub manage guardrails status -o table
+cub manage guardrails exception add shop-prod/batch --rule workload-pdb-coverage \
+    --reason "singleton by design" --commit --change-desc "batch runs one replica"
+cub manage guardrails exception list -o table                # what is excepted, and why
 ```
 
 ## Conventions

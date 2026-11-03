@@ -151,10 +151,14 @@ func hasAllowAllRule(rules []NetworkPolicyRule) bool {
 }
 
 // IPBlockExposesMetadata reports whether an egress ipBlock admits the cloud
-// metadata IP — its CIDR contains the address and no `except` excludes it.
+// metadata IP — its CIDR contains the address and no `except` excludes it. A /32
+// naming the address alone allows it by intent, so it is not reported.
 func IPBlockExposesMetadata(ib *IPBlock) bool {
 	_, cidr, err := net.ParseCIDR(ib.CIDR)
 	if err != nil {
+		return false
+	}
+	if ones, _ := cidr.Mask.Size(); ones == 32 {
 		return false
 	}
 	mip := net.ParseIP(metadataIP)

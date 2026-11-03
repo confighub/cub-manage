@@ -33,7 +33,7 @@ Checks that need cluster node-pool / taint facts (a nodeSelector for a pool no c
 
 ## The toolkit
 
-- `cub manage scheduling findings -o table` — severity-ranked placement findings (`--severity`, `--cluster`, `--namespace`).
+- `cub manage scheduling findings -o table` — severity-ranked placement findings (`--severity`, `--analyzer toleration-without-placement`, `--cluster`, `--namespace`).
 
 Server-side `--where` + label shorthands scope the fleet; `--cluster` / `--namespace` are client-side.
 

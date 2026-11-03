@@ -23,10 +23,10 @@ import (
 	"github.com/confighub/cub-manage/internal/nsmanager/snapshot"
 )
 
-// findingAnnotation is written by `guardrails annotate` onto the Namespace Unit
-// of each incomplete namespace, and read by the envelope-finding rule
-// (annotate-then-validate).
-const findingAnnotation = "namespace.confighub.com/finding"
+// envelopeAnnotation is written by `guardrails annotate` onto the Namespace Unit
+// of each incomplete namespace, naming the members it is missing, and read by the
+// envelope-coverage rule (annotate-then-validate).
+const envelopeAnnotation = "namespace.confighub.com/envelope-coverage"
 
 // Guardrail CEL expressions, evaluated per resource (r aliases the resource).
 const (
@@ -36,15 +36,15 @@ const (
 	// The null check is required: a resource written with a bare `annotations:` key
 	// has the key present with a null value, so has() is true but `in` against null
 	// raises "no such overload" and the rule reports a spurious failure.
-	celNoEnvelopeFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + findingAnnotation + "' in r.metadata.annotations)"
+	celNoEnvelopeFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + envelopeAnnotation + "' in r.metadata.annotations)"
 )
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "namespace",
 	Rules: []guardrails.Rule{
-		{Slug: "namespace-has-pod-security", Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace apply-envelope --space <s>`.", Expression: celHasPodSecurity},
+		{Slug: "namespace-has-pod-security", Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace apply-envelope --namespace <ns>`.", Expression: celHasPodSecurity},
 		{Slug: "namespace-pod-security-standard", Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace apply-envelope` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.", Function: VetPodSecurityFunction},
-		{Slug: "namespace-envelope-finding", Description: "Warns while a namespace.confighub.com/finding annotation is present (set by `cub manage namespace guardrails annotate`). Fix: close the envelope gap, then re-run annotate.", Expression: celNoEnvelopeFinding},
+		{Slug: "namespace-envelope-coverage", Description: "Warns while a namespace.confighub.com/envelope-coverage annotation is present (set by `cub manage namespace guardrails annotate`). Fix: close the envelope gap, then re-run annotate.", Expression: celNoEnvelopeFinding},
 	},
 }
 
@@ -79,22 +79,26 @@ once in a policy Space and enforced in each Space that opts into the group:
   namespace-has-pod-security       a Namespace must carry a pod-security enforce label
   namespace-pod-security-standard  a workload must meet the level in its own enforce
                                    label, which apply-envelope copies from its namespace
-  namespace-envelope-finding       warns while an envelope finding is annotated (§ annotate)
+  namespace-envelope-coverage      warns while a namespace is annotated as missing part of
+                                   its envelope (§ annotate)
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:
   cub trigger update <slug> --space <policy-space> --unwarn
 
-The envelope-finding rule realizes the annotate-then-validate model: the manager
+The envelope-coverage rule realizes the annotate-then-validate model: the manager
 can't set ValidationWarnings directly (only a failed Trigger can), so 'guardrails
 annotate' writes a finding annotation onto each incomplete namespace's Namespace
 Unit and this Trigger turns it into a warning.
 
 The namespace-name invariant (metadata.namespace == normalizeName(Component)) is
 enforced separately, by a cluster-selected mutating set-namespace Trigger — the
-promotable active-correction option, wired outside this advisory pack.`,
+promotable active-correction option, wired outside this advisory pack.
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(installPreflight), pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(installPreflight), Pack.AnnotateCmd(preflight, annotateSpec))
 	return cmd
 }
 
@@ -102,12 +106,12 @@ promotable active-correction option, wired outside this advisory pack.`,
 // have an incomplete envelope, and what to write on their Namespace Unit. The
 // rest of the command is managerkit/guardrails'.
 var annotateSpec = guardrails.AnnotateSpec{
-	Key:   findingAnnotation,
+	Key:   envelopeAnnotation,
 	Noun:  "Namespace Unit",
-	Short: "Write a finding annotation onto the Namespace Unit of each incomplete namespace (dry-run unless --commit)",
-	Long: `annotate runs the envelope analysis and writes a namespace.confighub.com/finding
-annotation (value = the missing members) onto the v1/Namespace Unit of each
-incomplete namespace. Paired with the namespace-envelope-finding rule from
+	Short: "Annotate the Namespace Unit of each incomplete namespace with what it is missing",
+	Long: `annotate runs the envelope analysis and writes a namespace.confighub.com/
+envelope-coverage annotation (value = the missing members) onto the v1/Namespace
+Unit of each incomplete namespace. Paired with the namespace-envelope-coverage rule from
 'guardrails install', this turns a set-aware finding into an advisory
 ValidationWarning — the manager cannot set warnings directly, only a failed rule can.
 

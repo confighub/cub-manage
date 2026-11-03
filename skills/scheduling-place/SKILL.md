@@ -44,7 +44,7 @@ A toleration only *permits* scheduling onto a tainted node — pair it with a no
 
 ## The loop
 
-1. **See the gap**: `cub manage scheduling placement --unconstrained-only` / `cub manage scheduling findings`.
+1. **See the gap**: `cub manage scheduling placement --issues-only` / `cub manage scheduling findings`.
 2. **Preview** (dry-run — the default):
    ```bash
    cub manage scheduling set-node-selector ml-prod/trainer --selector pool=gpu

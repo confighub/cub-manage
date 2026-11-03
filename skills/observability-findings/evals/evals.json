@@ -12,14 +12,14 @@
       "id": 2,
       "name": "uncovered",
       "prompt": "Which metrics Services aren't being scraped?",
-      "expected_output": "Runs `cub manage observability findings --analyzer coverage` and reports uncovered metrics Services.",
+      "expected_output": "Runs `cub manage observability findings --analyzer unmonitored-service` and reports uncovered metrics Services.",
       "files": []
     },
     {
       "id": 3,
       "name": "dangling",
       "prompt": "Do we have any ServiceMonitors that select nothing?",
-      "expected_output": "Runs `cub manage observability findings --analyzer dangling` and reports dangling ServiceMonitors.",
+      "expected_output": "Runs `cub manage observability findings --analyzer dangling-servicemonitor` and reports dangling ServiceMonitors.",
       "files": []
     },
     {

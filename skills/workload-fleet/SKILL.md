@@ -53,7 +53,7 @@ All **edit/create Units but do not publish them**.
    cub manage workload fleet-edit --profile harden-restricted --environment prod --commit \
      --change-desc "Harden prod workloads. User prompt: ..."
    ```
-3. **Verify**: `cub manage workload readiness --environment prod --failing-only` shows the dimension cleared.
+3. **Verify**: `cub manage workload readiness --environment prod --issues-only` shows the dimension cleared.
 4. **Roll out** is a separate step — hand off to `release-publish`.
 
 ## Stop conditions

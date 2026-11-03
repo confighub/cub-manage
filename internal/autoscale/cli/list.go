@@ -5,7 +5,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -18,36 +17,29 @@ import (
 	"github.com/confighub/cub-manage/internal/kit"
 )
 
+// autoscalerRow is a list row with what an autoscaler adds: its scale target and
+// replica range.
 type autoscalerRow struct {
-	Cluster    string `json:"cluster"`
-	Namespace  string `json:"namespace,omitempty"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
+	kit.ResourceRow
 	TargetKind string `json:"targetKind,omitempty"`
 	TargetName string `json:"targetName"`
 	Min        *int64 `json:"min,omitempty"`
 	Max        *int64 `json:"max,omitempty"`
 	Pinned     bool   `json:"pinned"`
-	Space      string `json:"space"`
-	UnitSlug   string `json:"unitSlug"`
-}
-
-type listReport struct {
-	Autoscalers []autoscalerRow `json:"autoscalers"`
-	Total       int             `json:"total"`
-	Filter      string          `json:"filter,omitempty"`
 }
 
 func newListCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var clusterFilter, namespaceFilter string
+	var only kit.ResourceFilter
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List every HorizontalPodAutoscaler and KEDA ScaledObject in the fleet",
 		Long: `list reports each autoscaler (HorizontalPodAutoscaler or KEDA ScaledObject)
 across the fleet: its scale target, min/max replicas, and whether it is pinned
-(min == max, so it can't actually scale).`,
+(min == max, so it can't actually scale).
+
+Filter with --kind, --cluster, and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cub.Preflight(cmd.Context())
@@ -62,65 +54,51 @@ across the fleet: its scale target, min/max replicas, and whether it is pinned
 			if err != nil {
 				return err
 			}
-			report := buildListReport(snap, clusterFilter, namespaceFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
+			rows := autoscalerRows(snap, only)
+			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
 				return err
 			}
-			printListTable(cmd, report)
+			printListTable(cmd, rows)
 			return nil
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "restrict output to this namespace")
+	kit.AddResourceFlags(cmd, &only, string(autoscale.KindHPA), string(autoscale.KindScaledObject))
 	return cmd
 }
 
-func buildListReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string) listReport {
-	var rows []autoscalerRow
+func autoscalerRows(snap *snapshot.Snapshot, only kit.ResourceFilter) []autoscalerRow {
+	rows := []autoscalerRow{}
 	for _, c := range snap.Clusters {
 		for _, a := range c.Autoscalers {
-			if clusterFilter != "" && a.Origin.Cluster != clusterFilter {
-				continue
-			}
-			if namespaceFilter != "" && a.Namespace != namespaceFilter {
-				continue
-			}
-			rows = append(rows, autoscalerRow{
-				Cluster: a.Origin.Cluster, Namespace: a.Namespace, Kind: string(a.Kind), Name: a.Name,
+			row := autoscalerRow{
+				ResourceRow: kit.ResourceRow{
+					Cluster: a.Origin.Cluster, Kind: string(a.Kind), Name: a.Name, Namespace: a.Namespace,
+					Space: a.Origin.Space, Unit: a.Origin.UnitSlug,
+				},
 				TargetKind: a.TargetKind, TargetName: a.TargetName,
 				Min: a.Min, Max: a.Max, Pinned: a.Pinned(),
-				Space: a.Origin.Space, UnitSlug: a.Origin.UnitSlug,
-			})
+			}
+			if only.Keep(row.ResourceRow) {
+				rows = append(rows, row)
+			}
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Cluster != rows[j].Cluster {
-			return rows[i].Cluster < rows[j].Cluster
-		}
-		if rows[i].Namespace != rows[j].Namespace {
-			return rows[i].Namespace < rows[j].Namespace
-		}
-		return rows[i].Name < rows[j].Name
-	})
-	return listReport{Autoscalers: rows, Total: len(rows), Filter: snap.Filter}
+	kit.SortResources(rows, func(r autoscalerRow) kit.ResourceRow { return r.ResourceRow })
+	return rows
 }
 
-func printListTable(cmd *cobra.Command, r listReport) {
-	if len(r.Autoscalers) == 0 {
-		kit.Fprintln(cmd.OutOrStdout(), "No autoscalers found.")
-		return
-	}
+func printListTable(cmd *cobra.Command, rows []autoscalerRow) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "CLUSTER\tNAMESPACE\tKIND\tNAME\tTARGET\tMIN\tMAX\tPINNED\tUNIT")
-	for _, a := range r.Autoscalers {
+	for _, a := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			a.Cluster, kit.Dash(a.Namespace), shortKind(a.Kind), a.Name,
-			targetLabel(a.TargetKind, a.TargetName), minMax(a.Min), minMax(a.Max), kit.YesNo(a.Pinned), a.UnitSlug)
+			targetLabel(a.TargetKind, a.TargetName), minMax(a.Min), minMax(a.Max), kit.YesNo(a.Pinned), kit.UnitLabel(a.Space, a.Unit))
 	}
 	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d autoscalers", r.Total))
+	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d resources", len(rows)))
 }
 
 func shortKind(kind string) string {

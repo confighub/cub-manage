@@ -51,6 +51,7 @@ cub manage rbac who-can create clusterrolebindings --api-group rbac.authorizatio
 
 - `<resource>` is the plural name, optionally with a subresource (`pods/log`, `*/scale`).
 - `--api-group` — omit for the core group; set for named groups (`apps`, `rbac.authorization.k8s.io`, …). A core-group rule will NOT match a named-group query and vice versa, so get the group right.
+- `--cluster` — restrict to one cluster (a Target slug, or `None`).
 - `--namespace` — restrict to grants effective in that namespace (ClusterRoleBindings still apply; RoleBindings only in their own namespace).
 - `--name` — honor `resourceNames` restrictions for a specific object.
 
@@ -66,12 +67,12 @@ cub manage rbac access Group:oidc:developers
 cub manage rbac access ServiceAccount:apps/ci-deployer    # ServiceAccount:namespace/name
 ```
 
-Subject format is `Kind:Name`, or `ServiceAccount:namespace/name` for a ServiceAccount. ServiceAccounts are matched by namespace + name. To discover subject names first, use **rbac-audit** (`cub manage rbac list`).
+Subject format is `Kind:Name`, or `ServiceAccount:namespace/name` for a ServiceAccount. ServiceAccounts are matched by namespace + name. `--cluster` restricts to one cluster, and `--namespace` to the grants effective in a namespace (its own and the cluster-wide ones). To discover subject names first, use **rbac-audit** (`cub manage rbac list`).
 
 ## Scoping & output
 
 - Narrow the fleet with a single Unit `--where` filter (may reference Unit, Space, and Target attributes, e.g. `--where "Unreleasable = false"`), or the label shorthands `--component` / `--environment` / `--region` / `--owner` / `--layer` / `--variant` (each expands to `Space.Labels.<Key> = '<value>'`, e.g. `--environment prod`). ConfigHub `where` is flat AND-only — no parentheses, no OR; the shorthands AND onto any `--where`.
-- `--namespace` on `who-can` is a client-side display filter (restricts to grants effective in that namespace), not part of the server query.
+- `--cluster` and `--namespace` on `who-can` and `access` are client-side display filters (`--namespace` restricts to grants effective in that namespace), not part of the server query.
 - JSON by default; `-o table` for humans. Pipe JSON into `jq` for grouping/counting.
 
 ## Interpreting results

@@ -9,16 +9,16 @@ allowed-tools: Bash(cub manage observability --help) Bash(cub manage observabili
 
 Instrument workloads — as data, dry-run by default. One workload, or across a selector via a profile.
 
-- **`ensure-servicemonitor <space>/<service-unit>`** — author a ServiceMonitor Unit whose selector is derived from the Service's labels (fixes uncovered metrics Services).
+- **`ensure-servicemonitor <space>/<service-unit>`** — make a ServiceMonitor Unit, `<service>-sm`, whose selector is derived from the Service's labels (fixes uncovered metrics Services); creates it, or brings an existing one up to date.
 - **`inject-sidecar <space>/<unit> --image <img>`** — inject/replace an otel-collector sidecar via `set-path` (find-or-append the container by name).
 - **`cub manage profile install | list | apply`** — the profile library (e.g. `otel-sidecar`, a parameterized `set-path` Invocation, `--param image=…`).
 - **`fleet-edit --profile <slug> [--where …]`** — apply a profile across a selector in one operation.
 
-All **edit/create Units but do not publish them** — rolling out is a separate `cub release publish <space>`, which bundles the Space's Units for its release Target.
+All **edit/create Units but do not release them** — rolling out is a separate `cub release publish <space>`, which bundles the Space's Units for its release Target.
 
 ## Why this matters
 
-ServiceMonitor coverage is a cross-Unit property, and a sidecar must be find-or-appended into a pod template by name — `cub manage observability` does both as data: `ensure-servicemonitor` authors a new Unit derived from the Service; `inject-sidecar` uses `set-path`'s associative find-or-append so a re-run replaces rather than duplicates. Everything is **dry-run by default** and requires `--commit --change-desc`; ValidationErrors are never bypassed.
+ServiceMonitor coverage is a cross-Unit property, and a sidecar must be find-or-appended into a pod template by name — `cub manage observability` does both as data: `ensure-servicemonitor` makes a Unit derived from the Service (idempotent); `inject-sidecar` uses `set-path`'s associative find-or-append so a re-run replaces rather than duplicates. Everything is **dry-run by default** and requires `--commit --change-desc`; ValidationErrors are never bypassed.
 
 ## When to use
 
@@ -40,7 +40,7 @@ ServiceMonitor coverage is a cross-Unit property, and a sidecar must be find-or-
 
 ## The loop
 
-1. **See the gap**: `cub manage observability findings` / `coverage --uncovered-only` / `sidecars --missing-only`.
+1. **See the gap**: `cub manage observability findings` / `coverage --issues-only` / `sidecars --issues-only`.
 2. **Preview** (dry-run — the default):
    ```bash
    cub manage observability ensure-servicemonitor apptique-dev/frontend

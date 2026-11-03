@@ -38,23 +38,23 @@ A runtime tenancy controller injects policy objects into live namespaces; correc
 
 ## The loop
 
-1. **See the gap** (read-only): `cub manage namespace envelope --incomplete-only` or `cub manage namespace findings --severity high`.
+1. **See the gap** (read-only): `cub manage namespace envelope --issues-only` or `cub manage namespace findings --severity high`.
 2. **Preview** the fix (dry-run — the default):
    ```bash
-   cub manage namespace apply-envelope --space apptique-prod
+   cub manage namespace apply-envelope --where "Space.Slug = 'apptique-prod'"
    cub manage namespace backfill --space apptique-prod --from namespace-envelope --namespace apptique
    ```
-   `apply-envelope` lists each selected namespace with the level it would apply (the ACHIEVABLE column of `cub manage namespace pod-security`), `keep <level>` where the Namespace's own label stays, or why it is skipped (cluster-owned, unchecked workloads, no workloads and no `--level`, or workloads below `--level`), then each Unit's diff. To raise a level, run `cub manage namespace pod-security` first, fix what blocks the next level (`cub manage workload harden`, for one), and re-run `pod-security` to confirm before applying. `backfill` lists the base Units it would clone — it **excludes the base's Namespace when the dest already has one** (cloning it would create a `duplicate-namespace` collision), so it adds only the members the destination lacks.
+   `apply-envelope` selects namespaces with the fleet scope (`--where`, `--component`, the label shorthands) narrowed by `--cluster` / `--namespace` — the scope picks the Namespace Units to label, while each namespace is still judged by all of its workloads, wherever their Units are. It lists each selected namespace with the level it would apply (the ACHIEVABLE column of `cub manage namespace pod-security`), `keep <level>` where the Namespace's own label stays, or why it is skipped (cluster-owned, unchecked workloads, no workloads and no `--level`, or workloads below `--level`), then each Unit's diff. To raise a level, run `cub manage namespace pod-security` first, fix what blocks the next level (`cub manage workload harden`, for one), and re-run `pod-security` to confirm before applying. `backfill` reports the base Units it would clone, each checked by the server, in the shared write report (it cannot show `set-namespace`'s changes to clones that do not exist yet) — it **excludes the base's Namespace when the dest already has one** (cloning it would create a `duplicate-namespace` collision), so it adds only the members the destination lacks.
 3. **Commit** with `--commit --change-desc` (compose the description: summary, verbatim user prompt, condensed clarifications):
    ```bash
-   cub manage namespace apply-envelope --space apptique-prod --commit \
+   cub manage namespace apply-envelope --where "Space.Slug = 'apptique-prod'" --commit \
      --change-desc "Apply the Pod Security Standard level the workloads meet. User prompt: ..."
    cub manage namespace backfill --space apptique-prod --from namespace-envelope --namespace apptique --commit \
      --change-desc "Backfill the base envelope. User prompt: ..."
    ```
    Re-runs are idempotent (`apply-envelope` no-ops; `backfill` clones with allow-exists).
 4. **Verify**: `cub manage namespace envelope --cluster <c> --namespace <ns>` shows the namespace complete; `cub manage namespace findings --cluster <c>` shows the gaps cleared.
-5. **Roll out** is a separate step — hand off to `release-publish` (the Units are created/edited, not published).
+5. **Roll out** is a separate step — hand off to `release-publish` (the Units are created/edited, not released).
 
 ## Stop conditions
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/confighub/sdk/cliutil"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
-	"github.com/confighub/sdk/managerkit"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -24,28 +23,17 @@ import (
 // unitManagedByLabel marks Units this tool authors (e.g. generated PDBs).
 const unitManagedByLabel = "cub manage workload"
 
-type ensurePDBPlan struct {
-	Action    string `json:"action"`
-	DryRun    bool   `json:"dryRun"`
-	Space     string `json:"space"`
-	Namespace string `json:"namespace,omitempty"`
-	Unit      string `json:"unit"`
-	UnitID    string `json:"unitId,omitempty"`
-	Revision  int64  `json:"revision,omitempty"`
-	Manifest  string `json:"manifest"`
-}
-
 func newEnsurePDBCmd() *cobra.Command {
 	var output string
 	var minAvailable, maxUnavailable string
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "ensure-pdb <space>/<unit>",
-		Short: "Author a PodDisruptionBudget whose selector is derived from the workload",
-		Long: `ensure-pdb reads a workload Unit's pod-template labels and namespace and authors
-a new PodDisruptionBudget Unit whose selector matches exactly. The PDB is created
-in the same Space as the workload (as its own Unit, per one-resource-per-Unit),
-but not published — deploying it is a separate 'cub release publish <space>'.
+		Short: "Make a PodDisruptionBudget Unit whose selector matches a workload's pods",
+		Long: `ensure-pdb reads a workload Unit's pod-template labels and namespace and makes a
+PodDisruptionBudget Unit, <workload>-pdb, whose selector matches exactly, in the
+same Space as the workload. It creates the Unit, or brings an existing one up to
+date, so running it again changes nothing.
 
 Set the policy with --min-available or --max-unavailable (default:
 maxUnavailable 1, i.e. at most one pod down during a voluntary disruption).
@@ -92,41 +80,18 @@ would cover the whole namespace). Dry-run unless --commit --change-desc.`,
 			pdbSlug := w.Name + "-pdb"
 			manifest := renderPDB(w.Name+"-pdb", w.Namespace, policyKey, policyVal, w.PodLabels)
 
-			plan := ensurePDBPlan{
-				Action: "create-pdb", DryRun: dryRun, Space: ref.SpaceSlug,
-				Namespace: w.Namespace, Unit: pdbSlug, Manifest: manifest,
-			}
-			out := cmd.OutOrStdout()
-			if dryRun {
-				if done, err := managerkit.Render(out, output, plan); done || err != nil {
-					return err
-				}
-				kit.Fprintln(out, fmt.Sprintf("Dry run — would create PDB Unit %s/%s:", ref.SpaceSlug, pdbSlug))
-				kit.Fprintln(out, "")
-				kit.Fprintln(out, manifest)
-				kit.Fprintln(out, "Re-run with --commit --change-desc \"…\" to create the Unit. It is not applied until you apply it.")
-				return nil
-			}
-
-			created, err := cub.CreateUnit(cmd.Context(), client, goclientnew.Unit{
-				Slug:                  pdbSlug,
-				DisplayName:           pdbSlug,
-				ToolchainType:         "Kubernetes/YAML",
-				SpaceID:               ref.SpaceID,
-				Labels:                map[string]string{"managed-by": unitManagedByLabel},
-				LastChangeDescription: changeDesc,
-			}, manifest)
-			if err != nil {
-				return err
-			}
-			plan.UnitID = created.UnitID.String()
-			plan.Revision = created.HeadRevisionNum
-			if done, err := managerkit.Render(out, output, plan); done || err != nil {
-				return err
-			}
-			kit.Fprintln(out, fmt.Sprintf("Created PDB Unit %s/%s (revision %d). Publish the Space to deploy: cub release publish %s",
-				ref.SpaceSlug, pdbSlug, created.HeadRevisionNum, ref.SpaceSlug))
-			return nil
+			res := cub.EnsureUnits(cmd.Context(), client, []cub.Creation{{
+				SpaceSlug: ref.SpaceSlug,
+				Unit: goclientnew.Unit{
+					Slug:          pdbSlug,
+					DisplayName:   pdbSlug,
+					ToolchainType: "Kubernetes/YAML",
+					SpaceID:       ref.SpaceID,
+					Labels:        map[string]string{"managed-by": unitManagedByLabel},
+				},
+				Data: manifest,
+			}}, write.Change(changeDesc, dryRun))
+			return write.ReportMutations(cmd, "ensure-pdb", ref.SpaceSlug, dryRun, output, res)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)

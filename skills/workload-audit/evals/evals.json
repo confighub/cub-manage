@@ -5,7 +5,7 @@
       "id": 1,
       "name": "readiness-gaps",
       "prompt": "Which workloads in our fleet run as root or have no memory limit?",
-      "expected_output": "Runs `cub manage preflight` then `cub manage workload readiness` (JSON or -o table, optionally --failing-only or --dimension security/resources) and reports the workloads whose SECURITY / RESOURCES dimensions warn or fail. Does not mutate, does not fall back to kubectl.",
+      "expected_output": "Runs `cub manage preflight` then `cub manage workload readiness` (JSON or -o table, optionally --issues-only or --dimension security/resources) and reports the workloads whose SECURITY / RESOURCES dimensions warn or fail. Does not mutate, does not fall back to kubectl.",
       "files": []
     },
     {

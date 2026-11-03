@@ -48,9 +48,43 @@ const (
 // AllDimensions is the scorecard's dimension set, in display order.
 var AllDimensions = []string{DimSecurity, DimResources, DimProbes, DimHygiene, DimAvailability}
 
-// Issue is one scored check within a dimension, carrying its own status so
+// The checks each dimension makes, each named for what it finds wrong.
+const (
+	CheckPrivilegedContainer           = "privileged-container"
+	CheckPrivilegeEscalationAllowed    = "privilege-escalation-allowed"
+	CheckMissingRunAsNonRoot           = "missing-run-as-non-root"
+	CheckWritableRootFilesystem        = "writable-root-filesystem"
+	CheckCapabilitiesNotDropped        = "capabilities-not-dropped"
+	CheckMissingSeccompProfile         = "missing-seccomp-profile"
+	CheckServiceAccountTokenMounted    = "service-account-token-mounted"
+	CheckMissingMemoryLimit            = "missing-memory-limit"
+	CheckMissingCPULimit               = "missing-cpu-limit"
+	CheckMissingMemoryRequest          = "missing-memory-request"
+	CheckMissingCPURequest             = "missing-cpu-request"
+	CheckMissingReadinessProbe         = "missing-readiness-probe"
+	CheckMissingLivenessProbe          = "missing-liveness-probe"
+	CheckMissingTerminationLogFallback = "missing-termination-log-fallback"
+	CheckMissingPDB                    = "missing-pdb"
+	CheckPDBBlocksEviction             = "pdb-blocks-eviction"
+	CheckMissingSpread                 = "missing-spread"
+)
+
+// AllChecks is every check, by dimension in display order.
+var AllChecks = []string{
+	CheckPrivilegedContainer, CheckPrivilegeEscalationAllowed, CheckMissingRunAsNonRoot,
+	CheckWritableRootFilesystem, CheckCapabilitiesNotDropped, CheckMissingSeccompProfile,
+	CheckServiceAccountTokenMounted,
+	CheckMissingMemoryLimit, CheckMissingCPULimit, CheckMissingMemoryRequest, CheckMissingCPURequest,
+	CheckMissingReadinessProbe, CheckMissingLivenessProbe,
+	CheckMissingTerminationLogFallback,
+	CheckMissingPDB, CheckPDBBlocksEviction, CheckMissingSpread,
+}
+
+// Issue is one failed check within a dimension, carrying its own status so
 // findings can map per-issue severity (a dimension can hold both warns and fails).
+// Check names what is wrong, and is the analyzer of the finding it becomes.
 type Issue struct {
+	Check   string `json:"check"`
 	Status  Status `json:"status"`
 	Message string `json:"message"`
 }
@@ -63,8 +97,8 @@ type DimensionResult struct {
 }
 
 // add records an issue and bumps the dimension status to the worst seen.
-func (d *DimensionResult) add(st Status, msg string) {
-	d.Issues = append(d.Issues, Issue{Status: st, Message: msg})
+func (d *DimensionResult) add(st Status, check, msg string) {
+	d.Issues = append(d.Issues, Issue{Check: check, Status: st, Message: msg})
 	d.Status = worst(d.Status, st)
 }
 
@@ -164,27 +198,27 @@ func scoreSecurity(w *WorkloadEntity) DimensionResult {
 	for _, c := range w.Containers {
 		who := containerLabel(c.Name)
 		if isTrue(c.Privileged) {
-			d.add(StatusFail, who+"runs privileged")
+			d.add(StatusFail, CheckPrivilegedContainer, who+"runs privileged")
 		}
 		if !isFalse(c.AllowPrivilegeEscalation) {
-			d.add(StatusFail, who+"allowPrivilegeEscalation is not false")
+			d.add(StatusFail, CheckPrivilegeEscalationAllowed, who+"allowPrivilegeEscalation is not false")
 		}
 		if !isTrue(c.RunAsNonRoot) {
-			d.add(StatusFail, who+"does not set runAsNonRoot: true")
+			d.add(StatusFail, CheckMissingRunAsNonRoot, who+"does not set runAsNonRoot: true")
 		}
 		if !isTrue(c.ReadOnlyRootFilesystem) {
-			d.add(StatusWarn, who+"readOnlyRootFilesystem is not true")
+			d.add(StatusWarn, CheckWritableRootFilesystem, who+"readOnlyRootFilesystem is not true")
 		}
 		if !c.DropsAll {
-			d.add(StatusWarn, who+"does not drop ALL capabilities")
+			d.add(StatusWarn, CheckCapabilitiesNotDropped, who+"does not drop ALL capabilities")
 		}
 		if !isRuntimeSeccomp(c.SeccompProfileType) {
-			d.add(StatusWarn, who+"seccompProfile is not RuntimeDefault")
+			d.add(StatusWarn, CheckMissingSeccompProfile, who+"seccompProfile is not RuntimeDefault")
 		}
 	}
 	// Pod-level automount (best-effort; SA-level setting is not visible here).
 	if !isFalse(w.AutomountServiceAccountToken) {
-		d.add(StatusWarn, "automountServiceAccountToken is not false")
+		d.add(StatusWarn, CheckServiceAccountTokenMounted, "automountServiceAccountToken is not false")
 	}
 	return d
 }
@@ -196,17 +230,17 @@ func scoreResources(w *WorkloadEntity) DimensionResult {
 	for _, c := range w.Containers {
 		who := containerLabel(c.Name)
 		if !c.HasMemoryLimit {
-			d.add(StatusFail, who+"no memory limit")
+			d.add(StatusFail, CheckMissingMemoryLimit, who+"no memory limit")
 		}
 		if !c.HasCPULimit {
 			// CPU limits are contentious (throttling); flag as a warning, not a fail.
-			d.add(StatusWarn, who+"no cpu limit")
+			d.add(StatusWarn, CheckMissingCPULimit, who+"no cpu limit")
 		}
 		if !c.HasMemoryRequest {
-			d.add(StatusWarn, who+"no memory request")
+			d.add(StatusWarn, CheckMissingMemoryRequest, who+"no memory request")
 		}
 		if !c.HasCPURequest {
-			d.add(StatusWarn, who+"no cpu request")
+			d.add(StatusWarn, CheckMissingCPURequest, who+"no cpu request")
 		}
 	}
 	return d
@@ -223,10 +257,10 @@ func scoreProbes(w *WorkloadEntity) DimensionResult {
 	for _, c := range w.Containers {
 		who := containerLabel(c.Name)
 		if !c.HasReadiness {
-			d.add(StatusFail, who+"no readiness probe")
+			d.add(StatusFail, CheckMissingReadinessProbe, who+"no readiness probe")
 		}
 		if !c.HasLiveness {
-			d.add(StatusWarn, who+"no liveness probe")
+			d.add(StatusWarn, CheckMissingLivenessProbe, who+"no liveness probe")
 		}
 	}
 	return d
@@ -239,7 +273,7 @@ func scoreHygiene(w *WorkloadEntity) DimensionResult {
 	for _, c := range w.Containers {
 		who := containerLabel(c.Name)
 		if c.TerminationMessagePolicy != "FallbackToLogsOnError" {
-			d.add(StatusWarn, who+"terminationMessagePolicy is not FallbackToLogsOnError")
+			d.add(StatusWarn, CheckMissingTerminationLogFallback, who+"terminationMessagePolicy is not FallbackToLogsOnError")
 		}
 	}
 	return d
@@ -257,12 +291,12 @@ func scoreAvailability(w *WorkloadEntity, pdbs []*PDBEntity) DimensionResult {
 	}
 	eval := evaluateAvailability(w, pdbs)
 	if len(eval.MatchedPDBs) == 0 {
-		d.add(StatusFail, "multi-replica workload has no matching PodDisruptionBudget")
+		d.add(StatusFail, CheckMissingPDB, "multi-replica workload has no matching PodDisruptionBudget")
 	} else if eval.BlocksAllEvictions {
-		d.add(StatusFail, fmt.Sprintf("PDB %q blocks all voluntary evictions (minAvailable >= replicas or maxUnavailable: 0)", eval.BlockingPDB))
+		d.add(StatusFail, CheckPDBBlocksEviction, fmt.Sprintf("PDB %q blocks all voluntary evictions (minAvailable >= replicas or maxUnavailable: 0)", eval.BlockingPDB))
 	}
 	if !eval.HasSpread {
-		d.add(StatusWarn, "no pod anti-affinity or topology spread (a node/zone loss can take all replicas)")
+		d.add(StatusWarn, CheckMissingSpread, "no pod anti-affinity or topology spread (a node/zone loss can take all replicas)")
 	}
 	return d
 }

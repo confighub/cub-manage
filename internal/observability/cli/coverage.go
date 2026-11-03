@@ -32,7 +32,7 @@ func newCoverageCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
 	var clusterFilter, namespaceFilter string
-	var uncoveredOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "coverage",
 		Short: "ServiceMonitor coverage of metrics-exposing Services (the cross-Unit join)",
@@ -45,7 +45,7 @@ metrics/http-metrics/monitoring/prometheus/telemetry, or a prometheus.io/scrape=
 annotation. A ServiceMonitor covers a Service if its selector matches the
 Service's labels in the same namespace.
 
-Filter with --cluster / --namespace; --uncovered-only shows the gaps.`,
+Filter with --cluster / --namespace; --issues-only shows the gaps.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cub.Preflight(cmd.Context())
@@ -60,7 +60,7 @@ Filter with --cluster / --namespace; --uncovered-only shows the gaps.`,
 			if err != nil {
 				return err
 			}
-			report := buildCoverageReport(snap, clusterFilter, namespaceFilter, uncoveredOnly)
+			report := buildCoverageReport(snap, clusterFilter, namespaceFilter, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -70,13 +70,13 @@ Filter with --cluster / --namespace; --uncovered-only shows the gaps.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
-	cmd.Flags().BoolVar(&uncoveredOnly, "uncovered-only", false, "only metrics Services with no ServiceMonitor")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "metrics Services no ServiceMonitor selects")
 	return cmd
 }
 
-func buildCoverageReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, uncoveredOnly bool) coverageReport {
+func buildCoverageReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter string, issuesOnly bool) coverageReport {
 	var report coverageReport
 	report.Filter = snap.Filter
 	for _, r := range observability.AnalyzeCoverage(snap.Clusters) {
@@ -92,7 +92,7 @@ func buildCoverageReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter
 		} else {
 			report.Totals.Uncovered++
 		}
-		if uncoveredOnly && r.Covered {
+		if issuesOnly && r.Covered {
 			continue
 		}
 		report.Services = append(report.Services, r)

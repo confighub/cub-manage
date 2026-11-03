@@ -13,7 +13,7 @@ import (
 // deep-link and (later) annotate the offending Unit.
 type Finding struct {
 	Severity  api.Score `json:"severity"`
-	Analyzer  string    `json:"analyzer"` // the dimension: security | resources | probes | hygiene | availability
+	Analyzer  string    `json:"analyzer"` // the check that failed
 	Cluster   string    `json:"cluster"`
 	Namespace string    `json:"namespace,omitempty"`
 	Kind      string    `json:"kind"`
@@ -52,7 +52,7 @@ func Findings(clusters map[string]*ClusterWorkloads) []Finding {
 			for _, issue := range d.Issues {
 				out = append(out, Finding{
 					Severity:  severityFor(d.Dimension, issue.Status),
-					Analyzer:  d.Dimension,
+					Analyzer:  issue.Check,
 					Cluster:   s.Cluster,
 					Namespace: s.Namespace,
 					Kind:      s.Kind,
