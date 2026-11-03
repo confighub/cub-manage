@@ -33,7 +33,7 @@ func newSidecarsCmd() *cobra.Command {
 	var filter kit.FilterFlags
 	var clusterFilter, namespaceFilter string
 	var sidecarNames []string
-	var missingOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "sidecars",
 		Short: "Report which workloads carry a telemetry (otel) sidecar container",
@@ -42,7 +42,7 @@ container. By default it looks for the conventional OpenTelemetry container name
 (otel-collector, otc-container, opentelemetry-collector, otel-agent); override
 with --sidecar.
 
-Filter with --cluster / --namespace; --missing-only shows workloads without a
+Filter with --cluster / --namespace; --issues-only shows workloads without a
 sidecar.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,7 +58,7 @@ sidecar.`,
 			if err != nil {
 				return err
 			}
-			report := buildSidecarsReport(snap, sidecarNames, clusterFilter, namespaceFilter, missingOnly)
+			report := buildSidecarsReport(snap, sidecarNames, clusterFilter, namespaceFilter, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -68,14 +68,14 @@ sidecar.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
 	cmd.Flags().StringArrayVar(&sidecarNames, "sidecar", nil, "sidecar container name(s) to look for (default: the otel names)")
-	cmd.Flags().BoolVar(&missingOnly, "missing-only", false, "only workloads without the sidecar")
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "workloads without the sidecar")
 	return cmd
 }
 
-func buildSidecarsReport(snap *snapshot.Snapshot, sidecarNames []string, clusterFilter, namespaceFilter string, missingOnly bool) sidecarsReport {
+func buildSidecarsReport(snap *snapshot.Snapshot, sidecarNames []string, clusterFilter, namespaceFilter string, issuesOnly bool) sidecarsReport {
 	var report sidecarsReport
 	report.Filter = snap.Filter
 	report.SidecarNames = sidecarNames
@@ -95,7 +95,7 @@ func buildSidecarsReport(snap *snapshot.Snapshot, sidecarNames []string, cluster
 		} else {
 			report.Totals.Without++
 		}
-		if missingOnly && r.HasSidecar {
+		if issuesOnly && r.HasSidecar {
 			continue
 		}
 		report.Workloads = append(report.Workloads, r)

@@ -48,14 +48,14 @@ cub manage netpol findings --analyzer uncovered-ingress
 cub manage netpol findings --cluster prod-cluster
 ```
 
-JSON is the default; the `totals` block gives counts by severity and analyzer. Filter server-side with `--severity`, `--analyzer`, `--cluster`.
+JSON is the default; the `totals` block gives the total and counts `bySeverity` and `byAnalyzer`. Narrow the report (client-side) with `--severity`, `--analyzer`, `--cluster`, `--namespace`; an unknown `--analyzer` is an error, not an empty report.
 
 ## Acting on findings
 
 Report the findings grouped by severity, each with its namespace/resource and message. Then route remediation:
 
-- `missing-default-deny-ingress` / `uncovered-ingress` → **netpol-fix** `default-deny` (or **netpol-fleet** `fleet default-deny` for the whole fleet).
-- `metadata-egress` → **netpol-fix** `fix metadata`.
+- `missing-default-deny-ingress` / `uncovered-ingress` → **netpol-fix** `default-deny <namespace>` (or **netpol-fleet** `default-deny` with no namespace, for the whole fleet).
+- `metadata-egress` → **netpol-fix**: the `netpol-except-metadata` profile (`cub manage profile apply netpol-except-metadata <space>/<unit>`; fleet-wide, **netpol-fleet** `fleet-edit --profile netpol-except-metadata`).
 - `allow-all` → **netpol-fix** (replace the empty `from`/`to` with explicit peers) — or generate them from Links via `allow-from-links`.
 - `ingress-egress-asymmetry` → add the missing side with **netpol-fix** `allow`.
 

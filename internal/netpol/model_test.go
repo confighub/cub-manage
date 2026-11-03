@@ -126,3 +126,32 @@ func TestBuildFleetSkipsMalformed(t *testing.T) {
 		t.Fatalf("want exactly 1 well-formed NetworkPolicy, got %+v", c)
 	}
 }
+
+func TestDeniesByDefault(t *testing.T) {
+	cases := []struct {
+		name            string
+		body            string
+		ingress, egress bool
+	}{
+		{"deny all", `{"podSelector":{},"policyTypes":["Ingress","Egress"]}`, true, true},
+		{"egress deny allowing DNS by port", `{"podSelector":{},"policyTypes":["Egress"],"egress":[{"ports":[{"protocol":"UDP","port":53}]}]}`, false, true},
+		{"allow-all ingress", `{"podSelector":{},"policyTypes":["Ingress"],"ingress":[{}]}`, false, false},
+		{"egress to every address", `{"podSelector":{},"policyTypes":["Egress"],"egress":[{"to":[{"ipBlock":{"cidr":"0.0.0.0/0"}}]}]}`, false, false},
+		{"egress to some addresses", `{"podSelector":{},"policyTypes":["Egress"],"egress":[{"to":[{"ipBlock":{"cidr":"10.0.0.0/8"}}]}]}`, false, true},
+		{"one workload", `{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Ingress"]}`, false, false},
+	}
+	for _, tc := range cases {
+		doc := mustDoc(t, `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"p","namespace":"ns"},"spec":`+tc.body+`}`)
+		c := BuildFleet([]FleetResource{{Origin: ResourceOrigin{Cluster: "c1"}, Doc: doc}})["c1"]
+		if c == nil || len(c.NetworkPolicies) != 1 {
+			t.Fatalf("%s: policy not built", tc.name)
+		}
+		p := c.NetworkPolicies[0]
+		if got := p.DeniesIngressByDefault(); got != tc.ingress {
+			t.Errorf("%s: DeniesIngressByDefault = %v, want %v", tc.name, got, tc.ingress)
+		}
+		if got := p.DeniesEgressByDefault(); got != tc.egress {
+			t.Errorf("%s: DeniesEgressByDefault = %v, want %v", tc.name, got, tc.egress)
+		}
+	}
+}

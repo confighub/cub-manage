@@ -61,7 +61,7 @@ const celDatabaseStateful = "!(r.kind in ['Deployment', 'ReplicaSet']) || !has(r
 // for an image tag.
 const untaggedOrLatestImage = `(:latest$)|^([^/]+/)*[^/:@]+$`
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "workload",
 	Rules: []guardrails.Rule{
 		{Slug: "workload-has-limits", Description: "Warns on a controller whose containers don't all set resources.limits.memory. Fix: `cub manage workload set-resources <space>/<unit>`.", Expression: celHasLimits},
@@ -98,9 +98,12 @@ uncovered workload Unit and this Trigger turns it into a warning.
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:
-  cub trigger update <slug> --space <policy-space> --unwarn`,
+  cub trigger update <slug> --space <policy-space> --unwarn
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(preflight), pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(preflight), Pack.AnnotateCmd(preflight, annotateSpec))
 	return cmd
 }
 
@@ -110,7 +113,7 @@ Promote one to blocking later with:
 var annotateSpec = guardrails.AnnotateSpec{
 	Key:   pdbCoverageAnnotation,
 	Noun:  "workload Unit",
-	Short: "Annotate each uncovered multi-replica workload Unit with a PDB-coverage finding (dry-run unless --commit)",
+	Short: "Annotate each uncovered multi-replica workload Unit with a PDB-coverage finding",
 	Long: `annotate runs the availability analysis and writes a workload.confighub.com/
 pdb-coverage annotation onto each multi-replica workload Unit that has no matching
 PodDisruptionBudget. Paired with the workload-pdb-coverage rule from

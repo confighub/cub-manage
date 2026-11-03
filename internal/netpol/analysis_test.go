@@ -115,7 +115,7 @@ func TestFindings(t *testing.T) {
 		byAnalyzer[f.Analyzer]++
 	}
 	want := map[string]int{
-		"missing-default-deny-ingress": 2, // partial, asym
+		"missing-default-deny-ingress": 3, // partial, asym, and allowall: an allow-all denies nothing
 		"uncovered-ingress":            2, // part-api, asym-fe
 		"allow-all":                    1, // allowall
 		"metadata-egress":              1, // meta-open only (meta-blocked is excepted)
@@ -125,6 +125,17 @@ func TestFindings(t *testing.T) {
 		if byAnalyzer[analyzer] != n {
 			t.Errorf("analyzer %q = %d findings, want %d", analyzer, byAnalyzer[analyzer], n)
 		}
+	}
+}
+
+func TestDefaultDenies(t *testing.T) {
+	c := fleetFixture(t)
+	if ingress, _ := c.DefaultDenies("allowall"); len(ingress) != 0 {
+		t.Errorf("allowall: an allow-all policy counted as a default-deny: %v", ingress)
+	}
+	ingress, egress := c.DefaultDenies("covered")
+	if len(ingress) != 1 || len(egress) != 0 {
+		t.Errorf("covered: default-denies = %d ingress, %d egress, want 1, 0", len(ingress), len(egress))
 	}
 }
 

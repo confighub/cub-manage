@@ -47,8 +47,8 @@ type NamespaceCoverage struct {
 // the cluster. A workload is "covered" on a direction if at least one policy in
 // its namespace isolates that direction and its podSelector matches the
 // workload's pod labels. A namespace has a "default-deny" on a direction if some
-// policy there isolates that direction with an empty podSelector (selecting all
-// pods). Namespaces are derived from both policies and workloads, so a namespace
+// policy there isolates that direction for all pods (an empty podSelector)
+// without a rule that admits every peer. Namespaces are derived from both policies and workloads, so a namespace
 // with workloads but no policy still appears (as fully uncovered).
 func (c *ClusterNetpol) Coverage() (namespaces []NamespaceCoverage, workloads []WorkloadCoverage) {
 	policiesByNS := map[string][]*NetworkPolicyEntity{}
@@ -91,15 +91,8 @@ func (c *ClusterNetpol) Coverage() (namespaces []NamespaceCoverage, workloads []
 		pols := policiesByNS[ns]
 		nc.HasPolicy = len(pols) > 0
 		for _, p := range pols {
-			if !p.PodSelector.Empty() {
-				continue
-			}
-			if p.IsolatesIngress() {
-				nc.DefaultDenyIngress = true
-			}
-			if p.IsolatesEgress() {
-				nc.DefaultDenyEgress = true
-			}
+			nc.DefaultDenyIngress = nc.DefaultDenyIngress || p.DeniesIngressByDefault()
+			nc.DefaultDenyEgress = nc.DefaultDenyEgress || p.DeniesEgressByDefault()
 		}
 		for _, wc := range workloadsByNS[ns] {
 			nc.Workloads++
@@ -125,4 +118,21 @@ func (c *ClusterNetpol) Coverage() (namespaces []NamespaceCoverage, workloads []
 		return workloads[i].Name < workloads[j].Name
 	})
 	return namespaces, workloads
+}
+
+// DefaultDenies is the policies in a namespace that deny ingress, or egress, by
+// default, whatever they are named.
+func (c *ClusterNetpol) DefaultDenies(namespace string) (ingress, egress []*NetworkPolicyEntity) {
+	for _, p := range c.NetworkPolicies {
+		if NamespaceOf(p.Namespace) != namespace {
+			continue
+		}
+		if p.DeniesIngressByDefault() {
+			ingress = append(ingress, p)
+		}
+		if p.DeniesEgressByDefault() {
+			egress = append(egress, p)
+		}
+	}
+	return ingress, egress
 }

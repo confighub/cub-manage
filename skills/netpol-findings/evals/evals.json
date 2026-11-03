@@ -19,14 +19,14 @@
       "id": 3,
       "name": "metadata-egress",
       "prompt": "Do any of our policies allow egress to the cloud metadata IP?",
-      "expected_output": "Runs `cub manage netpol findings --analyzer metadata-egress` and reports any policies admitting 169.254.169.254, then routes the fix to netpol-fix `fix metadata`. Does not mutate.",
+      "expected_output": "Runs `cub manage netpol findings --analyzer metadata-egress` and reports any policies admitting 169.254.169.254, then routes the fix to netpol-fix (the netpol-except-metadata profile). Does not mutate.",
       "files": []
     },
     {
       "id": 4,
       "name": "routes-fix-elsewhere",
       "prompt": "Fix the namespaces that are missing a default-deny.",
-      "expected_output": "Recognizes this is a write request and routes to netpol-fix `default-deny` (or netpol-fleet `fleet default-deny`), rather than mutating from this read-only skill.",
+      "expected_output": "Recognizes this is a write request and routes to netpol-fix `default-deny` (or netpol-fleet `default-deny` with no namespace), rather than mutating from this read-only skill.",
       "files": []
     }
   ]

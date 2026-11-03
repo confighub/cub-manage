@@ -13,10 +13,9 @@ import (
 
 	"github.com/confighub/sdk/core/cubapi"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
-	"github.com/confighub/sdk/managerkit"
+	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
-	"github.com/confighub/cub-manage/internal/kit"
 	"github.com/confighub/cub-manage/internal/netpol"
 	"github.com/confighub/cub-manage/internal/netpol/snapshot"
 )
@@ -91,65 +90,26 @@ func resolveCreateDest(snap *snapshot.Snapshot, namespace, clusterFilter, spaceO
 	return createDest{spaceID: sid, spaceSlug: c.spaceSlug, targetSlug: c.targetSlug, cluster: c.cluster}, nil
 }
 
-// createPlan is the structured result of a create command (dry-run or commit).
-type createPlan struct {
-	Action    string `json:"action"`
-	DryRun    bool   `json:"dryRun"`
-	Space     string `json:"space"`
-	Target    string `json:"target,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Unit      string `json:"unit"`
-	UnitID    string `json:"unitId,omitempty"`
-	Revision  int64  `json:"revision,omitempty"`
-	Manifest  string `json:"manifest"`
+// policyCreation is the Unit a generated policy is made as, in the Space its
+// workloads live in.
+func policyCreation(dest createDest, slug, manifest string) cub.Creation {
+	return cub.Creation{
+		SpaceSlug: dest.spaceSlug,
+		Unit: goclientnew.Unit{
+			Slug:          slug,
+			DisplayName:   slug,
+			ToolchainType: "Kubernetes/YAML",
+			SpaceID:       dest.spaceID,
+			Labels:        map[string]string{"managed-by": unitManagedByLabel},
+		},
+		Data: manifest,
+	}
 }
 
-// runCreate executes the dry-run/commit flow shared by the create commands.
-func runCreate(cmd *cobra.Command, client *cubapi.Client, dest createDest, slug, manifest, namespace string, dryRun bool, changeDesc, output string) error {
-	plan := createPlan{
-		Action: "create-unit", DryRun: dryRun, Space: dest.spaceSlug, Target: dest.targetSlug,
-		Namespace: namespace, Unit: slug, Manifest: manifest,
-	}
-	out := cmd.OutOrStdout()
-	if dryRun {
-		if done, err := managerkit.Render(out, output, plan); done || err != nil {
-			return err
-		}
-		kit.Fprintln(out, fmt.Sprintf("Dry run — would create Unit %s/%s (target %s) for namespace %q:",
-			dest.spaceSlug, slug, orDash(dest.targetSlug), namespace))
-		kit.Fprintln(out, "")
-		kit.Fprintln(out, manifest)
-		kit.Fprintln(out, "Re-run with --commit --change-desc \"…\" to create the Unit. It is not applied to the cluster until you apply it.")
-		return nil
-	}
-
-	created, err := cub.CreateUnit(cmd.Context(), client, buildUnit(dest, slug, changeDesc), manifest)
-	if err != nil {
-		return err
-	}
-	plan.UnitID = created.UnitID.String()
-	plan.Revision = created.HeadRevisionNum
-	if done, err := managerkit.Render(out, output, plan); done || err != nil {
-		return err
-	}
-	kit.Fprintln(out, fmt.Sprintf("Created Unit %s/%s (revision %d). Publish the Space to deploy: cub release publish %s",
-		dest.spaceSlug, slug, created.HeadRevisionNum, dest.spaceSlug))
-	return nil
-}
-
-// buildUnit assembles the Unit body for creation. The manifest is not part of it:
-// configuration is not a field of a Unit, and CreateUnit writes it through the Unit's
-// data endpoint.
-func buildUnit(dest createDest, slug, changeDesc string) goclientnew.Unit {
-	u := goclientnew.Unit{
-		Slug:                  slug,
-		DisplayName:           slug,
-		ToolchainType:         "Kubernetes/YAML",
-		SpaceID:               dest.spaceID,
-		Labels:                map[string]string{"managed-by": unitManagedByLabel},
-		LastChangeDescription: changeDesc,
-	}
-	return u
+// ensurePolicy makes one generated policy Unit and reports it.
+func ensurePolicy(cmd *cobra.Command, client *cubapi.Client, command string, dest createDest, slug, manifest string, dryRun bool, changeDesc, output string) error {
+	res := cub.EnsureUnits(cmd.Context(), client, []cub.Creation{policyCreation(dest, slug, manifest)}, write.Change(changeDesc, dryRun))
+	return write.ReportMutations(cmd, command, dest.spaceSlug, dryRun, output, res)
 }
 
 // destFromUnitMeta builds a createDest from an existing Unit's metadata — used
@@ -186,9 +146,14 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-func orDash(s string) string {
-	if s == "" {
-		return "-"
+// findPolicy locates a NetworkPolicy entity by its Space slug and Unit slug.
+func findPolicy(snap *snapshot.Snapshot, space, unit string) *netpol.NetworkPolicyEntity {
+	for _, c := range snap.Clusters {
+		for _, np := range c.NetworkPolicies {
+			if np.Origin.Space == space && np.Origin.UnitSlug == unit {
+				return np
+			}
+		}
 	}
-	return s
+	return nil
 }

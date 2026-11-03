@@ -10,7 +10,7 @@ allowed-tools: Bash(cub manage autoscale --help) Bash(cub manage autoscale * --h
 Set how workloads autoscale — as data, dry-run by default. One HPA, an HPA→KEDA conversion, or a profile across a `--where` selector.
 
 - **`set-hpa <space>/<unit> [--min N] [--max N] [--cpu PCT] [--memory PCT]`** — edit an HPA's replica bounds and/or cpu/memory utilization targets.
-- **`convert-keda <space>/<unit>`** — rewrite an HPA as an equivalent KEDA ScaledObject (preserves min/max and cpu/memory metrics). Runs the `convert-hpa-to-keda` function in an **embedded executor in-process** — no server-side function.
+- **`convert-keda <space>/<unit>`** — rewrite an HPA as an equivalent KEDA ScaledObject (preserves min/max and cpu/memory metrics). Runs the `convert-hpa-to-keda` function in an **embedded executor in-process** — no server-side function — and reports like every other write: the dry run shows the HPA deleted and the ScaledObject added; a Unit with no HPA is reported unchanged.
 - **`cub manage profile install | list | apply`** — the autoscaling profile library (stored Invocations): `hpa-conservative` (cpu 60%), `hpa-aggressive` (cpu 85%), and parameterized `hpa-range` (`--param min=… --param max=…`).
 - **`fleet-edit --profile <slug> [--where …]`** — apply a profile across a selector of autoscaler Units in one operation.
 
@@ -55,7 +55,7 @@ All **edit Units but do not publish them** — rolling out is a separate `cub re
 ## Safety
 
 - Don't pin an autoscaler: keep `min < max`. `set-hpa` rejects `--min > --max`.
-- `convert-keda` only translates cpu/memory Resource metrics; Pods/Object/External metrics aren't converted (KEDA needs a matching scaler) — review the dry-run output.
+- `convert-keda` only translates cpu/memory Resource metrics; Pods/Object/External metrics aren't converted (KEDA needs a matching scaler) — review the dry-run diff.
 - Scope `fleet-edit` narrowly (dry-run shows the count) before a fleet-wide commit.
 
 ## Stop conditions

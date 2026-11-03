@@ -45,6 +45,7 @@ here ('pod-security') and fixed with 'cub manage workload harden'.
 	kit.AddWriteCommands(cmd,
 		newApplyEnvelopeCmd(),
 		newBackfillCmd(),
+		newFleetEditCmd(),
 		newGuardrailsCmd(),
 	)
 	return cmd

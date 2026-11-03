@@ -13,16 +13,16 @@ Report autoscaling anti-patterns across the fleet, most-severe first. Read-only.
 
 Three high-signal checks that need no live cluster facts, over **ConfigHub-managed Units only**:
 
-- **autoscaler-pinned** (medium) — an HPA/ScaledObject with `min == max`: it's an autoscaler that can't scale.
+- **pinned-autoscaler** (medium) — an HPA/ScaledObject with `min == max`: it's an autoscaler that can't scale.
 - **pdb-blocks-min-scale** (medium) — the cross-resource case: a PodDisruptionBudget whose `minAvailable` is `>=` the autoscaler's `minReplicas` (or `100%`), so at minimum scale no pod may be voluntarily evicted (node drains stall). This join of HPA `minReplicas` against PDB `minAvailable` is the check no single-resource validator makes.
-- **no-autoscaler** (low) — a Deployment/StatefulSet no HPA or ScaledObject targets.
+- **missing-autoscaler** (low) — a Deployment/StatefulSet no HPA or ScaledObject targets.
 
 ## When to use
 
 - "What autoscaling problems do we have?" → `findings`.
-- "Which HPAs can't actually scale?" → `findings` (autoscaler-pinned).
+- "Which HPAs can't actually scale?" → `findings` (pinned-autoscaler).
 - "Is a PDB blocking scale-down anywhere?" → `findings` (pdb-blocks-min-scale).
-- "Which workloads lack an autoscaler?" → `findings` (no-autoscaler).
+- "Which workloads lack an autoscaler?" → `findings` (missing-autoscaler).
 - "Autoscaling findings for prod / the ml component." → `findings --environment prod` / `--component ml`.
 
 ## Do not load for
@@ -37,7 +37,7 @@ Three high-signal checks that need no live cluster facts, over **ConfigHub-manag
 
 ## The toolkit
 
-- `cub manage autoscale findings -o table` — severity-ranked findings (`--min-severity low|medium|high`).
+- `cub manage autoscale findings -o table` — severity-ranked findings (`--severity`, `--analyzer pinned-autoscaler|pdb-blocks-min-scale|missing-autoscaler`, `--cluster`, `--namespace`). `--severity` is an exact match: `--severity high` shows only high findings.
 
 Server-side `--where` + label shorthands scope the fleet.
 

@@ -12,6 +12,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/confighub/sdk/core/plugin"
@@ -39,6 +40,10 @@ func main() {
 		}
 		return
 	}
+
+	// A command's output is its report. The SDK logs each function it runs
+	// in-process at info level, which would be noise beside it.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
 	if err := cli.NewRoot().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

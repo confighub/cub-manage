@@ -28,10 +28,10 @@ const celTolerationNeedsPlacement = "!(r.kind in " + controllerKinds + ")" +
 	" || (has(r.spec.template.spec.nodeSelector) && size(r.spec.template.spec.nodeSelector) > 0)" +
 	" || (has(r.spec.template.spec.affinity) && has(r.spec.template.spec.affinity.nodeAffinity) && has(r.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution))"
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "scheduling",
 	Rules: []guardrails.Rule{
-		{Slug: "workload-toleration-needs-placement",
+		{Slug: "scheduling-toleration-needs-placement",
 			Description: "Warns on a controller that tolerates a taint but has no nodeSelector or required node affinity (may schedule onto general nodes). Fix: `cub manage scheduling set-node-selector` / `set-node-affinity`, or a placement profile.",
 			Expression:  celTolerationNeedsPlacement},
 	},
@@ -46,14 +46,17 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages a pack of placement validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
-  workload-toleration-needs-placement   a controller that tolerates a taint must
-                                        pin where it lands (nodeSelector or
-                                        required node affinity)
+  scheduling-toleration-needs-placement   a controller that tolerates a taint must
+                                          pin where it lands (nodeSelector or
+                                          required node affinity)
 
 The rule is a plain per-resource vet-cel check (a single Unit answers it), created
 with Warn=true (advisory ValidationWarnings, never blocking). Promote it to blocking
-with: cub trigger update <slug> --space <policy-space> --unwarn`,
+with: cub trigger update <slug> --space <policy-space> --unwarn
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(preflight))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
 }

@@ -25,12 +25,12 @@ const (
 	celNoClusterAdmin = "r.kind != 'ClusterRoleBinding' || r.roleRef.name != 'cluster-admin'"
 )
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "rbac",
 	Rules: []guardrails.Rule{
-		{Slug: "no-rbac-wildcards", Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.", Expression: celNoWildcards},
-		{Slug: "no-rbac-privilege-escalation", Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.", Expression: celNoEscalation},
-		{Slug: "no-cluster-admin-binding", Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.", Expression: celNoClusterAdmin},
+		{Slug: "rbac-no-wildcards", Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.", Expression: celNoWildcards},
+		{Slug: "rbac-no-privilege-escalation", Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.", Expression: celNoEscalation},
+		{Slug: "rbac-no-cluster-admin-binding", Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.", Expression: celNoClusterAdmin},
 	},
 }
 
@@ -43,14 +43,17 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages a small pack of RBAC validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
-  no-rbac-wildcards             no wildcard verbs/resources/apiGroups
-  no-rbac-privilege-escalation  no escalate/bind/impersonate verbs
-  no-cluster-admin-binding      no ClusterRoleBindings to cluster-admin
+  rbac-no-wildcards              no wildcard verbs/resources/apiGroups
+  rbac-no-privilege-escalation   no escalate/bind/impersonate verbs
+  rbac-no-cluster-admin-binding  no ClusterRoleBindings to cluster-admin
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking), so
 installing on an existing fleet never blocks anyone. Promote one to blocking
-later with: cub trigger update <slug> --space <policy-space> --unwarn`,
+later with: cub trigger update <slug> --space <policy-space> --unwarn
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(preflight))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
 }

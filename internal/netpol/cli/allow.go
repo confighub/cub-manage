@@ -25,7 +25,7 @@ func newAllowCmd() *cobra.Command {
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "allow <src-workload> <dst-workload>",
-		Short: "Create an allow NetworkPolicy Unit between two workloads (dry-run unless --commit)",
+		Short: "Create an allow NetworkPolicy Unit between two workloads",
 		Long: `allow generates a NetworkPolicy that admits traffic from a source workload to a
 destination workload and creates it as a ConfigHub Unit. By default it is an
 ingress policy in the destination's namespace (selecting the destination,
@@ -80,7 +80,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 			if err != nil {
 				return err
 			}
-			return runCreate(cmd, client, dest, slug, manifest, policyNS, dryRun, changeDesc, output)
+			return ensurePolicy(cmd, client, "allow", dest, slug, manifest, dryRun, changeDesc, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)

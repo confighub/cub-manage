@@ -61,7 +61,7 @@ Both commands scope the fleet server-side with a single ConfigHub Unit `--where`
 
 - `--where "Unreleasable = false"` — by any Unit/Space/Target attribute (Slug, Labels.*, Space.*, Target.*).
 - `--where "Slug = 'rbac'"` — by Unit slug across the fleet.
-- Label shorthands over `Space.Labels.*`: `--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant` (e.g. `--environment prod`).
+- `--component <slug>` (compiles to `Space.ComponentID = '<id>'`), and label shorthands over `Space.Labels.*`: `--environment`, `--region`, `--owner`, `--layer`, `--variant` (e.g. `--environment prod`).
 
 ConfigHub `where` is flat AND-only — no parentheses, no OR (a parenthesized clause fails with `invalid attribute name`); the shorthands AND onto any `--where`. Prefer scoping server-side with `--where` over post-filtering large JSON.
 

@@ -164,14 +164,14 @@ func TestFindings_Severity(t *testing.T) {
 			t.Errorf("findings not sorted by severity at %d: %s before %s", i, findings[i-1].Severity, findings[i].Severity)
 		}
 	}
-	// A no-memory-limit finding must be high severity from the resources analyzer.
+	// A missing memory limit is a high-severity finding.
 	var found bool
 	for _, f := range findings {
-		if f.Analyzer == DimResources && f.Severity == api.ScoreHigh {
+		if f.Analyzer == CheckMissingMemoryLimit && f.Severity == api.ScoreHigh {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected a high-severity resources finding (no memory limit)")
+		t.Error("expected a high-severity missing-memory-limit finding")
 	}
 }

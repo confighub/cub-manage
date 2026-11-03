@@ -18,7 +18,7 @@ Per-object validators (kube-score, kube-linter) score one object, and — wired 
 - "What workloads do we have?" / "audit our workload posture." → `snapshot`, `list`.
 - "Which workloads run as root / have no memory limit / no readiness probe?" → `readiness` (optionally `--dimension security|resources|probes|hygiene`).
 - "What's the readiness of workload X?" → `readiness --namespace X` or `--cluster X`.
-- "Just the problem workloads" → `readiness --failing-only`.
+- "Just the problem workloads" → `readiness --issues-only`.
 - "Per-cluster workload counts" → `snapshot`.
 
 ## Do not load for
@@ -48,7 +48,7 @@ Per workload: security / resources / probes / hygiene → pass / warn / fail, wi
 
 ```bash
 cub manage workload readiness -o table
-cub manage workload readiness --failing-only -o table          # just the problems
+cub manage workload readiness --issues-only -o table          # just the problems
 cub manage workload readiness --dimension security --cluster prod-cluster
 ```
 
@@ -63,7 +63,7 @@ cub manage workload list --cluster dev-cluster --namespace apptique
 
 ### Scoping the fleet
 
-Scope server-side with a single Unit `--where` predicate — one Unit-level filter can reference Unit, Space, and Target metadata. Use the shorthands `--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR`. `--cluster` / `--namespace` are client-side display filters over the fetched snapshot.
+Scope server-side with a single Unit `--where` predicate — one Unit-level filter can reference Unit, Space, and Target metadata. Use `--component <slug>` (compiles to `Space.ComponentID = '<id>'`) and the shorthands `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR`. `--cluster` / `--namespace` are client-side display filters over the fetched snapshot.
 
 ## Stop conditions
 

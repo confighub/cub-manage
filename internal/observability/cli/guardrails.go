@@ -21,21 +21,21 @@ import (
 	"github.com/confighub/cub-manage/internal/observability/snapshot"
 )
 
-// coverageAnnotation is written by `guardrails annotate` onto each uncovered
-// metrics-Service Unit, and read by the coverage rule (annotate-then-validate --
+// coverageAnnotation is written by `guardrails annotate` onto each metrics-Service
+// Unit no ServiceMonitor selects, and read by the coverage rule (annotate-then-validate --
 // coverage is a cross-Unit property a per-Unit CEL check cannot compute).
-const coverageAnnotation = "observability.confighub.com/coverage"
+const coverageAnnotation = "observability.confighub.com/servicemonitor-coverage"
 
 // The null check is required: a resource written with a bare `annotations:` key has
 // the key present with a null value, so has() is true but `in` against null raises
 // "no such overload" and the rule reports a spurious failure.
 const celNoCoverageFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + coverageAnnotation + "' in r.metadata.annotations)"
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "observability",
 	Rules: []guardrails.Rule{
-		{Slug: "servicemonitor-coverage",
-			Description: "Warns while an observability.confighub.com/coverage annotation is present (set by `cub manage observability guardrails annotate`) — a metrics Service with no ServiceMonitor. Fix: `cub manage observability ensure-servicemonitor`, then re-run annotate.",
+		{Slug: "observability-servicemonitor-coverage",
+			Description: "Warns while an observability.confighub.com/servicemonitor-coverage annotation is present (set by `cub manage observability guardrails annotate`) — a metrics Service with no ServiceMonitor. Fix: `cub manage observability ensure-servicemonitor`, then re-run annotate.",
 			Expression:  celNoCoverageFinding},
 	},
 }
@@ -49,17 +49,21 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages the observability guardrail pack, defined once in a policy
 Space and enforced in each Space that opts into the group:
 
-  servicemonitor-coverage   warns while a Service is annotated as having no
-                            ServiceMonitor (a metrics Service that isn't scraped)
+  observability-servicemonitor-coverage   warns while a Service is annotated as
+                                          having no ServiceMonitor (a metrics
+                                          Service that isn't scraped)
 
 ServiceMonitor coverage is a cross-Unit property (the ServiceMonitor and the
 Service live in separate Units), so a per-Unit vet-cel can't compute it directly.
 This realizes annotate-then-validate: 'guardrails annotate' writes the coverage
 finding onto each uncovered metrics-Service Unit, and this Trigger turns it into
 an advisory ValidationWarning. Triggers are Warn=true; promote to blocking with
-  cub trigger update servicemonitor-coverage --space <policy-space> --unwarn`,
+  cub trigger update observability-servicemonitor-coverage --space <policy-space> --unwarn
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(preflight), pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(preflight), Pack.AnnotateCmd(preflight, annotateSpec))
 	return cmd
 }
 
@@ -69,10 +73,10 @@ an advisory ValidationWarning. Triggers are Warn=true; promote to blocking with
 var annotateSpec = guardrails.AnnotateSpec{
 	Key:   coverageAnnotation,
 	Noun:  "Service Unit",
-	Short: "Annotate each uncovered metrics-Service Unit with a coverage finding (dry-run unless --commit)",
+	Short: "Annotate each metrics-Service Unit no ServiceMonitor selects",
 	Long: `annotate runs the coverage analysis and writes an observability.confighub.com/
-coverage annotation onto each metrics-exposing Service Unit that no ServiceMonitor
-selects. Paired with the servicemonitor-coverage rule from 'guardrails install',
+servicemonitor-coverage annotation onto each metrics-exposing Service Unit that no ServiceMonitor
+selects. Paired with the observability-servicemonitor-coverage rule from 'guardrails install',
 this turns the cross-Unit coverage finding into an advisory ValidationWarning.
 
 Re-run after adding ServiceMonitors. Dry run unless --commit --change-desc.`,

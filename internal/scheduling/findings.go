@@ -25,7 +25,7 @@ type Finding struct {
 }
 
 // Analyzers.
-const analyzerPlacement = "placement"
+const analyzerPlacement = "toleration-without-placement"
 
 // Findings computes placement anti-patterns across the fleet, most-severe first.
 //

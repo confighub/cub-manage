@@ -26,17 +26,12 @@ const celAutoscalerNotPinned = "!(r.kind in ['HorizontalPodAutoscaler', 'ScaledO
 	" || (r.kind == 'HorizontalPodAutoscaler' && (!has(r.spec.minReplicas) || r.spec.minReplicas < r.spec.maxReplicas))" +
 	" || (r.kind == 'ScaledObject' && (!has(r.spec.minReplicaCount) || !has(r.spec.maxReplicaCount) || r.spec.minReplicaCount < r.spec.maxReplicaCount))"
 
-var pack = guardrails.Pack{
+var Pack = guardrails.Pack{
 	Group: "autoscale",
 	Rules: []guardrails.Rule{
-		{Slug: "autoscaler-not-pinned",
+		{Slug: "autoscale-not-pinned",
 			Description: "Warns on an HPA/ScaledObject with min == max (it can't actually scale). Fix: `cub manage autoscale set-hpa --min <lower> --max <higher>` or a profile.",
 			Expression:  celAutoscalerNotPinned},
-		// Not a CEL rule: schema validation covers the KEDA ScaledObjects
-		// `cub manage autoscale convert-keda` produces, since keda.sh is in the catalog.
-		{Slug: "schema-valid",
-			Description: "Warns when a resource fails Kubernetes/CRD schema validation — covers KEDA ScaledObjects produced by `cub manage autoscale convert-keda` (keda.sh is in the schema catalog).",
-			Function:    "vet-schemas"},
 	},
 }
 
@@ -49,17 +44,19 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages a pack of autoscaling validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
-  autoscaler-not-pinned   an HPA/ScaledObject must not have min == max (it would
-                          be unable to scale) — a per-resource vet-cel check
-  schema-valid            a resource must pass Kubernetes/CRD schema validation
-                          (vet-schemas) — this is the post-convert check for
-                          convert-keda output: a committed ScaledObject fires the
-                          Mutation trigger and is validated against keda.sh's schema
+  autoscale-not-pinned   an HPA/ScaledObject must not have min == max (it would
+                         be unable to scale) — a per-resource vet-cel check
 
-Both rules run per-resource (a single Unit answers each), created with Warn=true
-(advisory ValidationWarnings, never blocking). Promote one to blocking with:
-cub trigger update <slug> --space <policy-space> --unwarn`,
+The rule is created with Warn=true (advisory ValidationWarnings, never blocking).
+Promote it to blocking with:
+cub trigger update <slug> --space <policy-space> --unwarn
+
+Schema validation, which checks the ScaledObjects convert-keda writes, is the
+tool-level schema group: 'cub manage guardrails install'.
+
+Except one resource from a rule with 'cub manage guardrails exception add';
+'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(pack.InstallCmd(preflight))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
 }

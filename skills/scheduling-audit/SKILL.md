@@ -20,7 +20,7 @@ Note the distinction the report makes: **tolerations alone do not constrain plac
 - "Where do our workloads schedule?" / "audit placement." → `placement`.
 - "Which workloads pin to a node pool / set a nodeSelector?" → `placement` (NODESELECTOR column) or `snapshot`.
 - "What does workload X tolerate?" → `placement --namespace X` / `--cluster X`.
-- "Which workloads are unconstrained?" → `placement --unconstrained-only`.
+- "Which workloads are unconstrained?" → `placement --issues-only`.
 - "Per-cluster placement counts." → `snapshot`.
 - "List the workloads in cluster/namespace X." → `list`.
 
@@ -38,12 +38,12 @@ Note the distinction the report makes: **tolerations alone do not constrain plac
 ## The toolkit
 
 - `cub manage scheduling snapshot -o table` — per-cluster workload counts + how many set nodeSelector / tolerations / node affinity.
-- `cub manage scheduling placement -o table` — per-workload nodeSelector, tolerations, node affinity, and whether it's constrained (`--unconstrained-only`, `--cluster`, `--namespace`).
+- `cub manage scheduling placement -o table` — per-workload nodeSelector, tolerations, node affinity, and whether it's constrained (`--issues-only`, `--cluster`, `--namespace`).
 - `cub manage scheduling list -o table` — the workload explorer (`--kind`, `--cluster`, `--namespace`).
 
 ### Scoping
 
-Server-side `--where` plus label shorthands (`--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant`), AND-only. `--cluster` / `--namespace` are client-side display filters.
+Server-side `--where` plus `--component` (one Component's variant Spaces) and the label shorthands (`--environment`, `--region`, `--owner`, `--layer`, `--variant`), AND-only. `--cluster` / `--namespace` are client-side display filters.
 
 ## Stop conditions
 

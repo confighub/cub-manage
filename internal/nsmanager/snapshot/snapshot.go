@@ -128,6 +128,10 @@ func LoadBases(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, 
 // setComponents records on each resource the slug of the Component its Space is
 // a Variant of, which consistency groups by. A Space names its Component by ID,
 // so this reads the in-scope Spaces' ComponentIDs and then the Components' slugs.
+// idsPerQuery bounds how many IDs one IN filter names, so that the query string
+// stays within what the server accepts however large the fleet.
+const idsPerQuery = 100
+
 func setComponents(ctx context.Context, c *cubapi.Client, resources []nsmanager.FleetResource) error {
 	spaceIDs := map[string]bool{}
 	for _, r := range resources {
@@ -136,33 +140,37 @@ func setComponents(ctx context.Context, c *cubapi.Client, resources []nsmanager.
 	if len(spaceIDs) == 0 {
 		return nil
 	}
-	spaces, err := cubapi.ListSpaces(ctx, c, cubapi.Where{}.InStrings("SpaceID", slices.Sorted(maps.Keys(spaceIDs))),
-		cubapi.ListOpts{Select: "SpaceID,ComponentID"})
-	if err != nil {
-		return fmt.Errorf("list Spaces for their Components: %w", err)
-	}
 	componentOfSpace := map[string]string{}
 	componentIDs := map[string]bool{}
-	for _, es := range spaces {
-		if es.Space == nil || es.Space.ComponentID == nil {
-			continue
+	for ids := range slices.Chunk(slices.Sorted(maps.Keys(spaceIDs)), idsPerQuery) {
+		spaces, err := cubapi.ListSpaces(ctx, c, cubapi.Where{}.InStrings("SpaceID", ids),
+			cubapi.ListOpts{Select: "SpaceID,ComponentID"})
+		if err != nil {
+			return fmt.Errorf("list Spaces for their Components: %w", err)
 		}
-		id := es.Space.ComponentID.String()
-		componentOfSpace[es.Space.SpaceID.String()] = id
-		componentIDs[id] = true
+		for _, es := range spaces {
+			if es.Space == nil || es.Space.ComponentID == nil {
+				continue
+			}
+			id := es.Space.ComponentID.String()
+			componentOfSpace[es.Space.SpaceID.String()] = id
+			componentIDs[id] = true
+		}
 	}
 	if len(componentIDs) == 0 {
 		return nil
 	}
-	components, err := cubapi.ListComponents(ctx, c, cubapi.Where{}.InStrings("ComponentID", slices.Sorted(maps.Keys(componentIDs))),
-		cubapi.ListOpts{Select: "ComponentID,Slug"})
-	if err != nil {
-		return fmt.Errorf("list Components: %w", err)
-	}
 	slugs := map[string]string{}
-	for _, ec := range components {
-		if ec.Component != nil {
-			slugs[ec.Component.ComponentID.String()] = ec.Component.Slug
+	for ids := range slices.Chunk(slices.Sorted(maps.Keys(componentIDs)), idsPerQuery) {
+		components, err := cubapi.ListComponents(ctx, c, cubapi.Where{}.InStrings("ComponentID", ids),
+			cubapi.ListOpts{Select: "ComponentID,Slug"})
+		if err != nil {
+			return fmt.Errorf("list Components: %w", err)
+		}
+		for _, ec := range components {
+			if ec.Component != nil {
+				slugs[ec.Component.ComponentID.String()] = ec.Component.Slug
+			}
 		}
 	}
 	for i := range resources {

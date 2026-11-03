@@ -19,7 +19,7 @@
       "id": 3,
       "name": "analyzer-filter",
       "prompt": "List just the security findings across the fleet.",
-      "expected_output": "Runs `cub manage workload findings --analyzer security` and reports the security-analyzer findings.",
+      "expected_output": "Runs `cub manage workload findings --analyzer` with the security checks (privileged-container,privilege-escalation-allowed,missing-run-as-non-root,writable-root-filesystem,capabilities-not-dropped,missing-seccomp-profile,service-account-token-mounted) and reports those findings.",
       "files": []
     },
     {

@@ -4,12 +4,6 @@
 package cli
 
 import (
-	"fmt"
-	"text/tabwriter"
-
-	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
-
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/cub-manage/internal/autoscale"
@@ -18,34 +12,30 @@ import (
 	"github.com/confighub/cub-manage/internal/kit"
 )
 
-type findingsReport struct {
-	Findings []autoscale.Finding `json:"findings"`
-	Summary  map[string]int      `json:"summary"`
-	Total    int                 `json:"total"`
-	Filter   string              `json:"filter,omitempty"`
-}
+// analyzers are the analyzers findings runs, which --analyzer names.
+var analyzers = []string{"pinned-autoscaler", "pdb-blocks-min-scale", "missing-autoscaler"}
 
 func newFindingsCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var minSeverity string
-	var clusterFilter, namespaceFilter string
+	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Report autoscaling issues across the fleet, most-severe first",
-		Long: `findings analyzes the fleet and reports autoscaling issues, most-severe first:
+		Short: "Report autoscaling issues across the fleet, most severe first",
+		Long: `findings analyzes the fleet and reports autoscaling issues, most severe first:
 
-  - autoscaler-pinned (medium): an HPA/ScaledObject with min == max (can't scale)
-  - pdb-blocks-min-scale (medium): a PodDisruptionBudget whose minAvailable blocks
-    all voluntary eviction when the workload is at its autoscaler's minReplicas
-    (the cross-resource HPA-vs-PDB check)
-  - no-autoscaler (low): a Deployment/StatefulSet not targeted by any autoscaler
+  pinned-autoscaler     (medium) an HPA or ScaledObject with min == max, which cannot scale
+  pdb-blocks-min-scale  (medium) a PodDisruptionBudget whose minAvailable blocks all
+                        voluntary eviction when the workload is at its autoscaler's
+                        minReplicas
+  missing-autoscaler         (low) a Deployment or StatefulSet no autoscaler targets
 
-Canonical base/policy Spaces are excluded from analysis.`,
+Canonical base and policy Spaces are excluded from analysis.
+
+Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			threshold, err := kit.ParseScore(minSeverity)
-			if err != nil {
+			if err := only.Validate(); err != nil {
 				return err
 			}
 			client, err := cub.Preflight(cmd.Context())
@@ -60,54 +50,23 @@ Canonical base/policy Spaces are excluded from analysis.`,
 			if err != nil {
 				return err
 			}
-			report := buildFindingsReport(snap, threshold, clusterFilter, namespaceFilter)
-			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
-				return err
-			}
-			printFindingsTable(cmd, report)
-			return nil
+			return kit.RenderFindings(cmd, output, kit.NewFindingsReport(findings(snap), only, snap.Filter))
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&minSeverity, "min-severity", string(api.ScoreLow), "minimum severity to report: Low | Medium | High | Critical")
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "restrict output to this namespace")
+	kit.AddFindingFlags(cmd, &only, analyzers...)
 	return cmd
 }
 
-func buildFindingsReport(snap *snapshot.Snapshot, threshold api.Score, clusterFilter, namespaceFilter string) findingsReport {
-	all := autoscale.Findings(snap.Clusters)
-	kept := make([]autoscale.Finding, 0, len(all))
-	summary := map[string]int{}
-	for _, f := range all {
-		if !autoscale.AtLeast(f.Severity, threshold) {
-			continue
-		}
-		if clusterFilter != "" && f.Cluster != clusterFilter {
-			continue
-		}
-		if namespaceFilter != "" && f.Namespace != namespaceFilter {
-			continue
-		}
-		kept = append(kept, f)
-		summary[string(f.Severity)]++
+// findings is every autoscaling finding in the snapshot, in the shared form.
+func findings(snap *snapshot.Snapshot) []kit.Finding {
+	var out []kit.Finding
+	for _, f := range autoscale.Findings(snap.Clusters) {
+		out = append(out, kit.Finding{
+			Severity: f.Severity, Analyzer: f.Analyzer, Cluster: f.Cluster, Namespace: f.Namespace,
+			Kind: f.Kind, Name: f.Name, Space: f.Space, Unit: f.UnitSlug, Message: f.Message,
+		})
 	}
-	return findingsReport{Findings: kept, Summary: summary, Total: len(kept), Filter: snap.Filter}
-}
-
-func printFindingsTable(cmd *cobra.Command, r findingsReport) {
-	if len(r.Findings) == 0 {
-		kit.Fprintln(cmd.OutOrStdout(), "No autoscaling findings.")
-		return
-	}
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SEVERITY\tANALYZER\tCLUSTER\tNAMESPACE\tKIND\tNAME\tMESSAGE")
-	for _, f := range r.Findings {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			f.Severity, f.Analyzer, f.Cluster, kit.Dash(f.Namespace), f.Kind, f.Name, f.Message)
-	}
-	_ = tw.Flush()
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("\n%d findings (high=%d medium=%d low=%d)",
-		r.Total, r.Summary[string(api.ScoreHigh)], r.Summary[string(api.ScoreMedium)], r.Summary[string(api.ScoreLow)]))
+	return out
 }

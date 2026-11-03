@@ -5,7 +5,7 @@
       "id": 1,
       "name": "default-deny-dry-run-then-commit",
       "prompt": "Lock down the payments namespace on prod-cluster with a default-deny.",
-      "expected_output": "Runs preflight, previews `cub manage netpol default-deny payments --cluster prod-cluster` (dry-run, shows the YAML), and only on confirmation re-runs with --commit --change-desc. Notes the Unit is created but not published. Does not kubectl.",
+      "expected_output": "Runs preflight, previews `cub manage netpol default-deny payments --cluster prod-cluster` (dry-run, shows the Unit it would create and its diff), and only on confirmation re-runs with --commit --change-desc. Notes the Unit is created but not released. Does not kubectl.",
       "files": []
     },
     {
@@ -17,9 +17,9 @@
     },
     {
       "id": 3,
-      "name": "fix-dns",
+      "name": "allow-dns-profile",
       "prompt": "This egress default-deny is blocking DNS — add the kube-dns allowance to apptique-prod/default-deny-apptique.",
-      "expected_output": "Runs `cub manage netpol fix dns apptique-prod/default-deny-apptique` (dry-run then --commit), which adds the kube-dns :53 egress allowance via set-yq; no-op if already present.",
+      "expected_output": "Runs `cub manage profile apply netpol-allow-dns apptique-prod/default-deny-apptique` (dry-run then --commit with --change-desc), which adds the kube-dns :53 egress allowance via set-yq; reported unchanged if already present.",
       "files": []
     },
     {

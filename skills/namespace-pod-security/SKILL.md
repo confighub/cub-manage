@@ -62,7 +62,7 @@ Units the function could not check are listed under `unchecked` with the reason;
 
 ### Scoping the fleet
 
-Same server-side scoping as the other commands: `--where` (Unit / `Space.*` / `Target.*`, flat AND only) and the label shorthands `--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant`. `--cluster`, `--namespace` and `--status` filter the computed report client-side. Canonical base Spaces are excluded, as in every analysis.
+Same server-side scoping as the other commands: `--where` (Unit / `Space.*` / `Target.*`, flat AND only) and `--component` and the label shorthands `--environment`, `--region`, `--owner`, `--layer`, `--variant`. `--cluster`, `--namespace` and `--status` filter the computed report client-side. Canonical base Spaces are excluded, as in every analysis.
 
 ## Stop conditions
 

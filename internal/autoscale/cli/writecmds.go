@@ -24,7 +24,7 @@ func newSetHPACmd() *cobra.Command {
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-hpa <space>/<unit>",
-		Short: "Edit a HorizontalPodAutoscaler's min/max replicas and cpu/memory targets (dry-run unless --commit)",
+		Short: "Edit a HorizontalPodAutoscaler's min/max replicas and cpu/memory targets",
 		Long: `set-hpa edits an existing HorizontalPodAutoscaler Unit (autoscaling/v2):
 
   --min N        set spec.minReplicas

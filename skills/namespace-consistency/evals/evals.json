@@ -5,14 +5,14 @@
       "id": 1,
       "name": "drifted-namespaces",
       "prompt": "Which components use a different namespace name in some environments than others?",
-      "expected_output": "Runs `cub manage preflight` then `cub manage namespace consistency --inconsistent-only` and reports the components whose namespace name differs across variant Spaces (NamespaceConsistent false). Read-only.",
+      "expected_output": "Runs `cub manage preflight` then `cub manage namespace consistency --issues-only` and reports the components whose namespace name differs across variant Spaces (NamespaceConsistent false). Read-only.",
       "files": []
     },
     {
       "id": 2,
       "name": "one-component",
       "prompt": "Is the apptique namespace consistent across all its environments?",
-      "expected_output": "Runs `cub manage namespace consistency --component-name apptique` (or scopes with --component) and reports whether apptique's namespace name and pod-security level are identical across its variant Spaces, listing the variants.",
+      "expected_output": "Runs `cub manage namespace consistency --component apptique` and reports whether apptique's namespace name and pod-security level are identical across its variant Spaces, listing the variants.",
       "files": []
     },
     {

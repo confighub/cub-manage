@@ -63,7 +63,7 @@ cub manage netpol list --cluster prod-cluster --namespace apptique
 
 Scope server-side with a single Unit `--where` predicate — one Unit-level filter can reference Unit, Space, and Target metadata, so prefer it over post-filtering large JSON. Example: `--where "Unreleasable = false"` (the Units a Release delivers) or `--where "Space.Slug LIKE 'prod-%'"`.
 
-For the standard Space labels, use the shorthands `--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR` (a parenthesized clause fails with `invalid attribute name`); express alternatives as separate runs.
+For the standard Space labels, use `--component <slug>` (compiles to `Space.ComponentID = '<id>'`) and the shorthands `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR` (a parenthesized clause fails with `invalid attribute name`); express alternatives as separate runs.
 
 `--cluster` / `--namespace` are client-side display filters over the fetched snapshot, not server-side scope. Units whose Space has no release Target (base/template Spaces) group under `None`.
 

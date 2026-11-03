@@ -2,7 +2,7 @@
 name: namespace-enforce
 description: 'Install, inspect, and feed the namespace-envelope guardrail pack in ConfigHub with the cub manage namespace CLI — making envelope findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our namespace standards", "warn on namespaces without pod-security", "flag namespaces missing the envelope", "set up namespace guardrails", "which Units have namespace warnings?", "annotate the incomplete namespaces so they get flagged". Installs Warn=true vet-celexpr Triggers in the namespace guardrail group (annotate-then-validate for envelope gaps); dry-run by default. Not for one-off checks (use namespace-findings) or fixing config (use namespace-backfill).'
 phase: act
-allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace findings *) Bash(cub manage namespace guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage namespace guardrails annotate *)
+allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace findings *) Bash(cub manage namespace guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage namespace guardrails annotate *) Bash(cub manage guardrails exception list *)
 ---
 
 # namespace-enforce
@@ -11,7 +11,7 @@ Make namespace-envelope findings **enforced**, not advisory. Installs a pack of 
 
 ## Why this matters
 
-The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware envelope checks use **annotate-then-validate** — `guardrails annotate` writes a finding annotation onto each incomplete namespace's Namespace Unit, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
+The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware envelope checks use **annotate-then-validate** — `guardrails annotate` writes a `namespace.confighub.com/envelope-coverage` annotation, naming what is missing, onto each incomplete namespace's Namespace Unit, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
 
 ## The pack
 
@@ -19,7 +19,7 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
 | --- | --- |
 | `namespace-has-pod-security` | a `v1/Namespace` must carry a `pod-security.kubernetes.io/enforce` label |
 | `namespace-pod-security-standard` | a workload must meet the Pod Security Standard level in its own `pod-security.kubernetes.io/enforce` label, which `cub manage namespace apply-envelope` copies from its namespace — so admission would not reject its pods. Unlabeled workloads are not checked; `cub manage namespace pod-security` counts them as UNLABELED. Runs `vet-pod-security-standard` with no level, so `install` refuses a server whose function still requires one |
-| `namespace-envelope-finding` | warns while a `namespace.confighub.com/finding` annotation is present |
+| `namespace-envelope-coverage` | warns while a `namespace.confighub.com/envelope-coverage` annotation is present |
 
 The **namespace-name invariant** (`metadata.namespace == normalizeName(Component)`) is enforced separately by a cluster-selected **mutating `set-namespace` Trigger** — active correction, the promotable option, wired outside this advisory pack.
 
@@ -73,7 +73,7 @@ metadata:
     exceptions.guardrails.confighub.com/namespace-has-pod-security: "kube-system: managed by the cluster provider"
 ```
 
-That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub function set -- set-annotation` on the Unit, with `--where-resource` naming the one resource, as in `ConfigHub.ResourceName = '<namespace>/<name>'`, or `'/<name>'` for a cluster-scoped one), not a way to silence a warning.
+That rule's Trigger skips the resources carrying it; the other rules still check them. Adding one is a config change for the user to make deliberately (`cub manage guardrails exception add <space>/<unit> --rule <rule> --reason "<why>"`, with `--resource <type>/[<namespace>/]<name>`, as in `apps/v1/Deployment/shop/web`, when the Unit holds more than one resource), not a way to silence a warning. `cub manage guardrails exception list` shows every resource excepted from a rule and the reason recorded; `exception remove` takes one away.
 
 ## Stop conditions
 

@@ -31,8 +31,7 @@ type consistencyReport struct {
 func newConsistencyCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
-	var componentFilter string
-	var inconsistentOnly bool
+	var issuesOnly bool
 	cmd := &cobra.Command{
 		Use:   "consistency",
 		Short: "Cross-variant consistency: does each of a component's workloads run in the same namespace on every cluster?",
@@ -50,7 +49,7 @@ so they are not compared. Only Variants of a Component participate;
 canonical base Spaces are excluded.
 
 This is a fleet-wide property no per-cluster controller or per-resource validator
-can see. Filter with --component and --inconsistent-only.`,
+can see. Narrow it with --component (one Component's variants) and --issues-only.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cub.Preflight(cmd.Context())
@@ -65,7 +64,7 @@ can see. Filter with --component and --inconsistent-only.`,
 			if err != nil {
 				return err
 			}
-			report := buildConsistencyReport(snap, componentFilter, inconsistentOnly)
+			report := buildConsistencyReport(snap, issuesOnly)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
@@ -75,24 +74,20 @@ can see. Filter with --component and --inconsistent-only.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&componentFilter, "component-name", "", "restrict output to this component (client-side)")
-	cmd.Flags().BoolVar(&inconsistentOnly, "inconsistent-only", false, "only components that are inconsistent across variants")
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "components that are inconsistent across their variants")
 	return cmd
 }
 
-func buildConsistencyReport(snap *snapshot.Snapshot, componentFilter string, inconsistentOnly bool) consistencyReport {
+func buildConsistencyReport(snap *snapshot.Snapshot, issuesOnly bool) consistencyReport {
 	var report consistencyReport
 	for _, cc := range nsmanager.AnalyzeConsistency(snap.Clusters) {
-		if componentFilter != "" && cc.Component != componentFilter {
-			continue
-		}
 		report.Totals.Components++
 		if cc.Consistent {
 			report.Totals.Consistent++
 		} else {
 			report.Totals.Inconsistent++
 		}
-		if inconsistentOnly && cc.Consistent {
+		if issuesOnly && cc.Consistent {
 			continue
 		}
 		report.Components = append(report.Components, cc)

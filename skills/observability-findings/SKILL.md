@@ -12,16 +12,16 @@ Report observability gaps across the fleet, most-severe first. Read-only.
 ## Why this matters
 
 Two analyzers:
-- **coverage** (medium) — a metrics-exposing Service with **no ServiceMonitor** selecting it. This is the cross-Unit join a per-Unit validator can't do: the ServiceMonitor and the Service are separate Units.
-- **dangling** (low) — a ServiceMonitor that selects no Service in its namespace.
+- **unmonitored-service** (medium) — a metrics-exposing Service with **no ServiceMonitor** selecting it. This is the cross-Unit join a per-Unit validator can't do: the ServiceMonitor and the Service are separate Units.
+- **dangling-servicemonitor** (low) — a ServiceMonitor that selects no Service in its namespace.
 
 Analysis is over **ConfigHub-managed Units only**.
 
 ## When to use
 
 - "What observability gaps do we have?" → `findings`.
-- "Which metrics Services aren't scraped?" → `findings --analyzer coverage`.
-- "Any ServiceMonitors selecting nothing?" → `findings --analyzer dangling`.
+- "Which metrics Services aren't scraped?" → `findings --analyzer unmonitored-service`.
+- "Any ServiceMonitors selecting nothing?" → `findings --analyzer dangling-servicemonitor`.
 - "Findings for the checkout component / in prod." → `findings --component checkout` / `--environment prod`.
 
 ## Do not load for
@@ -36,7 +36,7 @@ Analysis is over **ConfigHub-managed Units only**.
 
 ## The toolkit
 
-- `cub manage observability findings -o table` — severity-ranked findings (`--severity`, `--analyzer coverage|dangling`, `--cluster`, `--namespace`).
+- `cub manage observability findings -o table` — severity-ranked findings (`--severity`, `--analyzer unmonitored-service|dangling-servicemonitor`, `--cluster`, `--namespace`).
 
 ## Stop conditions
 

@@ -50,7 +50,7 @@ Per namespace: pod-security enforce level and the list of missing members. Also 
 
 ```bash
 cub manage namespace envelope -o table
-cub manage namespace envelope --incomplete-only -o table   # just the gaps
+cub manage namespace envelope --issues-only -o table   # just the gaps
 cub manage namespace envelope --namespace payments
 ```
 
@@ -67,7 +67,7 @@ cub manage namespace list --cluster prod-cluster --namespace apptique
 
 Scope server-side with a single Unit `--where` predicate — one Unit-level filter can reference Unit, Space, and Target metadata, so prefer it over post-filtering large JSON. Example: `--where "Unreleasable = false"` (the Units a Release delivers) or `--where "Space.Slug LIKE 'apptique-%'"`.
 
-For the standard Space labels, use the shorthands `--component`, `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR` (a parenthesized clause fails with `invalid attribute name`); express alternatives as separate runs.
+For the standard Space labels, use `--component <slug>` (compiles to `Space.ComponentID = '<id>'`) and the shorthands `--environment`, `--region`, `--owner`, `--layer`, `--variant` (each compiles to `Space.Labels.<Key> = '<value>'`), AND-joined with any raw `--where`. ConfigHub `where` is flat AND-only — no parentheses, no `OR` (a parenthesized clause fails with `invalid attribute name`); express alternatives as separate runs.
 
 `--cluster` / `--namespace` are client-side display filters over the fetched snapshot, not server-side scope. Units whose Space has no release Target (base/template Spaces) group under `None`.
 

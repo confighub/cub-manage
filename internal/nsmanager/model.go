@@ -186,20 +186,6 @@ func asString(v any) (string, bool) {
 	return s, ok
 }
 
-func asStringArray(v any) []string {
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(arr))
-	for _, x := range arr {
-		if s, ok := x.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func asStringMap(v any) map[string]string {
 	rec, ok := asRecord(v)
 	if !ok {

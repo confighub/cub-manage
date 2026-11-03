@@ -235,7 +235,7 @@ func Findings(clusters map[string]*ClusterObservability) []Finding {
 			continue
 		}
 		out = append(out, Finding{
-			Severity: api.ScoreMedium, Analyzer: "coverage",
+			Severity: api.ScoreMedium, Analyzer: "unmonitored-service",
 			Cluster: r.Cluster, Namespace: r.Namespace, Kind: "Service", Name: r.Service,
 			Space: r.Space, UnitSlug: r.UnitSlug,
 			Message: fmt.Sprintf("Service exposes metrics (%s) but no ServiceMonitor selects it", r.MetricPort),
@@ -243,7 +243,7 @@ func Findings(clusters map[string]*ClusterObservability) []Finding {
 	}
 	for _, d := range DanglingMonitors(clusters) {
 		out = append(out, Finding{
-			Severity: api.ScoreLow, Analyzer: "dangling",
+			Severity: api.ScoreLow, Analyzer: "dangling-servicemonitor",
 			Cluster: d.Cluster, Namespace: d.Namespace, Kind: "ServiceMonitor", Name: d.Name,
 			Space: d.Space, UnitSlug: d.UnitSlug,
 			Message: "ServiceMonitor selects no Service in its namespace",

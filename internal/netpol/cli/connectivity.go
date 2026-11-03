@@ -117,8 +117,8 @@ func newReachCmd(use, direction, short, long string) *cobra.Command {
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "restrict to this namespace")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
 	cmd.Flags().StringVar(&kindFilter, "kind", "", "restrict to this workload kind (Deployment, StatefulSet, ...)")
 	return cmd
 }

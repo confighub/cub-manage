@@ -79,7 +79,7 @@ dev-cluster  appvote    Deployment  worker  fail      pass       fail    warn   
 ```
 
 Narrow to one dimension with `--dimension security|resources|probes|hygiene|availability`,
-or show only problems with `--failing-only`.
+or show only problems with `--issues-only`.
 
 ## 4. Triage with findings
 
@@ -88,20 +88,20 @@ to fix first" view. A failing security / resources / availability check is `high
 a failing probe is `medium`; warnings are one step down; hygiene is `low`.
 
 ```console
-$ cub manage workload findings -o table --cluster dev-cluster --namespace appvote --severity High
-SEVERITY  ANALYZER  CLUSTER      NAMESPACE  KIND        NAME    MESSAGE
-HIGH      security  dev-cluster  appvote    Deployment  db      container "postgres" allowPrivilegeEscalation is not false
-HIGH      security  dev-cluster  appvote    Deployment  db      container "postgres" does not set runAsNonRoot: true
-HIGH      security  dev-cluster  appvote    Deployment  redis   container "redis" allowPrivilegeEscalation is not false
-HIGH      security  dev-cluster  appvote    Deployment  redis   container "redis" does not set runAsNonRoot: true
-HIGH      security  dev-cluster  appvote    Deployment  result  container "result" allowPrivilegeEscalation is not false
-HIGH      security  dev-cluster  appvote    Deployment  result  container "result" does not set runAsNonRoot: true
-HIGH      security  dev-cluster  appvote    Deployment  vote    container "vote" allowPrivilegeEscalation is not false
-HIGH      security  dev-cluster  appvote    Deployment  vote    container "vote" does not set runAsNonRoot: true
-HIGH      security  dev-cluster  appvote    Deployment  worker  container "worker" allowPrivilegeEscalation is not false
-HIGH      security  dev-cluster  appvote    Deployment  worker  container "worker" does not set runAsNonRoot: true
+$ cub manage workload findings -o table --cluster dev-cluster --namespace appvote --severity high
+SEVERITY  ANALYZER                      CLUSTER      NAMESPACE  KIND        NAME    MESSAGE
+High      missing-run-as-non-root       dev-cluster  appvote    Deployment  db      container "postgres" does not set runAsNonRoot: true
+High      privilege-escalation-allowed  dev-cluster  appvote    Deployment  db      container "postgres" allowPrivilegeEscalation is not false
+High      missing-run-as-non-root       dev-cluster  appvote    Deployment  redis   container "redis" does not set runAsNonRoot: true
+High      privilege-escalation-allowed  dev-cluster  appvote    Deployment  redis   container "redis" allowPrivilegeEscalation is not false
+High      missing-run-as-non-root       dev-cluster  appvote    Deployment  result  container "result" does not set runAsNonRoot: true
+High      privilege-escalation-allowed  dev-cluster  appvote    Deployment  result  container "result" allowPrivilegeEscalation is not false
+High      missing-run-as-non-root       dev-cluster  appvote    Deployment  vote    container "vote" does not set runAsNonRoot: true
+High      privilege-escalation-allowed  dev-cluster  appvote    Deployment  vote    container "vote" allowPrivilegeEscalation is not false
+High      missing-run-as-non-root       dev-cluster  appvote    Deployment  worker  container "worker" does not set runAsNonRoot: true
+High      privilege-escalation-allowed  dev-cluster  appvote    Deployment  worker  container "worker" allowPrivilegeEscalation is not false
 
-10 findings (10 high, 0 medium, 0 low)
+10 findings: 10 high
 ```
 
 Filter with `--severity`, `--analyzer`, and the scope flags below.
@@ -173,22 +173,32 @@ per-workload fixes, each dry-run then commit:
 ```console
 $ cub manage workload set-resources appvote-dev/vote --tier medium      # cpu/memory requests + limits
 $ cub manage workload set-probes    appvote-dev/vote                    # liveness/readiness/startup
-$ cub manage workload ensure-pdb    appvote-dev/vote                    # author a matching PDB Unit
+$ cub manage workload ensure-pdb    appvote-dev/vote                    # make a matching PDB Unit
 $ cub manage workload ensure-spread appvote-dev/vote                    # soft pod anti-affinity
 ```
 
-`ensure-pdb` reads the workload's pod labels and prints the PDB it would author:
+`ensure-pdb` reads the workload's pod labels and shows the PDB Unit it would make
+(it creates `<workload>-pdb`, or brings an existing one up to date):
 
 ```console
-$ cub manage workload ensure-pdb nsmgr-proto-apptique/web
-{
-  "action": "create-pdb",
-  "dryRun": true,
-  "space": "nsmgr-proto-apptique",
-  "namespace": "apptique",
-  "unit": "web-pdb",
-  "manifest": "apiVersion: policy/v1\nkind: PodDisruptionBudget\nmetadata:\n  name: web-pdb\n  namespace: apptique\nspec:\n  maxUnavailable: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: web\n"
-}
+$ cub manage workload ensure-pdb nsmgr-proto-apptique/web -o table
+UNIT     MUTATED  ERROR
+web-pdb  yes      -
+
+ensure-pdb: 1 of 1 Unit(s) would change (dry-run — pass --commit --change-desc to write)
+
+Changes to unit nsmgr-proto-apptique/web-pdb from ensure-pdb:
+Resource: policy/v1/PodDisruptionBudget apptique/web-pdb  (added)
+    apiVersion: policy/v1
+    kind: PodDisruptionBudget
+    metadata:
+      name: web-pdb
+      namespace: apptique
+    spec:
+      maxUnavailable: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: web
 ```
 
 Re-runs are idempotent: a command that changes nothing reports `0 of 1 Unit(s)

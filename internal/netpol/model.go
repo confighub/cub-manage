@@ -11,6 +11,8 @@
 package netpol
 
 import (
+	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -138,6 +140,39 @@ func (np *NetworkPolicyEntity) IsolatesIngress() bool {
 func (np *NetworkPolicyEntity) IsolatesEgress() bool {
 	_, egress := np.Isolates()
 	return egress
+}
+
+// DeniesIngressByDefault reports whether this policy is a default-deny for
+// ingress: it selects every pod in its namespace and isolates ingress, and no
+// rule of it admits all traffic, which would make it an allow-all instead.
+func (np *NetworkPolicyEntity) DeniesIngressByDefault() bool {
+	return np.PodSelector.Empty() && np.IsolatesIngress() && !slices.ContainsFunc(np.Ingress, NetworkPolicyRule.admitsAll)
+}
+
+// DeniesEgressByDefault is DeniesIngressByDefault for egress.
+func (np *NetworkPolicyEntity) DeniesEgressByDefault() bool {
+	return np.PodSelector.Empty() && np.IsolatesEgress() && !slices.ContainsFunc(np.Egress, NetworkPolicyRule.admitsAll)
+}
+
+// admitsAll reports whether a rule admits all traffic: it names no ports, and
+// either no peers or an ipBlock spanning every address. A rule limited to some
+// ports, such as a DNS allowance, leaves a default-deny in place.
+func (r NetworkPolicyRule) admitsAll() bool {
+	if len(r.Ports) > 0 {
+		return false
+	}
+	if len(r.Peers) == 0 {
+		return true
+	}
+	for _, p := range r.Peers {
+		if p.IPBlock == nil {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(p.IPBlock.CIDR); err == nil && prefix.Bits() == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // AllowsDNSEgress reports whether any egress rule already permits DNS (port 53).

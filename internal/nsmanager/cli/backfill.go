@@ -13,7 +13,6 @@ import (
 	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	api "github.com/confighub/sdk/core/function/api"
-	"github.com/confighub/sdk/managerkit"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -21,19 +20,6 @@ import (
 	"github.com/confighub/cub-manage/internal/nsmanager"
 	"github.com/confighub/cub-manage/internal/nsmanager/snapshot"
 )
-
-type backfillReport struct {
-	Command    string   `json:"command"`
-	From       string   `json:"from"`
-	Space      string   `json:"space"`
-	Namespace  string   `json:"namespace"`
-	DryRun     bool     `json:"dryRun"`
-	WouldClone []string `json:"wouldClone,omitempty"`
-	Cloned     []string `json:"cloned,omitempty"`
-	Rehomed    int      `json:"rehomed"`
-	// Diffs are what set-namespace did to each clone.
-	Diffs []write.UnitDiff `json:"diffs,omitempty"`
-}
 
 func newBackfillCmd() *cobra.Command {
 	var output, spaceSlug, fromSpace, namespace string
@@ -54,8 +40,8 @@ re-homes it without reading the policies themselves.
 
 This is the half the installer's 'new'/'upload' doesn't cover (greenfield only).
 Re-runs are idempotent (already-present clones are reported, not duplicated).
-Unit creation has no server-side dry-run, so dry-run lists the plan and only
---commit --change-desc actually clones + re-homes. Units are created, not applied.`,
+Dry-run unless --commit --change-desc. A dry run checks each clone, but cannot
+show what set-namespace would change in Units that do not exist yet.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if spaceSlug == "" || fromSpace == "" || namespace == "" {
@@ -126,32 +112,30 @@ Unit creation has no server-side dry-run, so dry-run lists the plan and only
 			}
 			sort.Strings(cloneSlugs)
 
-			report := backfillReport{Command: "backfill", From: fromSpace, Space: spaceSlug, Namespace: namespace, DryRun: dryRun}
 			if len(cloneSlugs) == 0 {
 				return fmt.Errorf("no envelope Units to backfill from base Space %q (nothing missing)", fromSpace)
 			}
 			srcWhere := fmt.Sprintf("SpaceID = '%s' AND Slug IN (%s)", base.Space.SpaceID.String(), inList(cloneSlugs))
-			if dryRun {
-				report.WouldClone = cloneSlugs
-				return reportBackfill(cmd, report, output)
-			}
-
-			// Commit: clone base -> dest (idempotent), then re-home the clones.
 			destWhere := fmt.Sprintf("SpaceID = '%s'", dest.Space.SpaceID.String())
-			cloned, err := cub.BulkCloneUnits(cmd.Context(), client, srcWhere, destWhere, true)
+			cloned, err := cub.BulkCloneUnits(cmd.Context(), client, srcWhere, destWhere, true, dryRun)
 			if err != nil {
 				return fmt.Errorf("clone envelope into %q: %w", spaceSlug, err)
 			}
+			clones := &cubapi.Result{DryRun: dryRun}
 			var clonedSlugs []string
 			for _, r := range cloned {
+				o := cubapi.UnitOutcome{SpaceSlug: spaceSlug, HasMutations: true, Success: r.Error == nil}
 				if r.Unit != nil {
+					o.UnitID, o.UnitSlug = r.Unit.UnitID.String(), r.Unit.Slug
 					clonedSlugs = append(clonedSlugs, r.Unit.Slug)
 				}
+				if r.Error != nil {
+					o.Error = r.Error.Message
+				}
+				clones.Outcomes = append(clones.Outcomes, o)
 			}
-			sort.Strings(clonedSlugs)
-			report.Cloned = clonedSlugs
-
-			if len(clonedSlugs) > 0 {
+			results := []*cubapi.Result{clones}
+			if !dryRun && len(clonedSlugs) > 0 {
 				sel := cubapi.Selector{Where: fmt.Sprintf("SpaceID = '%s' AND Slug IN (%s)", dest.Space.SpaceID.String(), inList(clonedSlugs))}
 				res, err := cub.InvokeMutation(cmd.Context(), client, "set-namespace",
 					[]api.FunctionArgument{{ParameterName: "namespace-name", Value: namespace}},
@@ -159,14 +143,9 @@ Unit creation has no server-side dry-run, so dry-run lists the plan and only
 				if err != nil {
 					return fmt.Errorf("re-home cloned Units to namespace %q: %w", namespace, err)
 				}
-				for _, o := range res.Outcomes {
-					if o.HasMutations {
-						report.Rehomed++
-					}
-				}
-				report.Diffs = write.Diffs(res)
+				results = append(results, res)
 			}
-			return reportBackfill(cmd, report, output)
+			return write.ReportMutations(cmd, "backfill", spaceSlug, dryRun, output, results...)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -185,26 +164,4 @@ func inList(slugs []string) string {
 		quoted[i] = "'" + strings.ReplaceAll(s, "'", "''") + "'"
 	}
 	return strings.Join(quoted, ", ")
-}
-
-func reportBackfill(cmd *cobra.Command, r backfillReport, output string) error {
-	if done, err := managerkit.Render(cmd.OutOrStdout(), output, r); done || err != nil {
-		return err
-	}
-	if r.DryRun {
-		kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("Would clone %d Unit(s) from %s into %s, then set-namespace to %q:",
-			len(r.WouldClone), r.From, r.Space, r.Namespace))
-		for _, s := range r.WouldClone {
-			kit.Fprintln(cmd.OutOrStdout(), "  "+s)
-		}
-		kit.Fprintln(cmd.OutOrStdout(), "\n(dry-run — pass --commit --change-desc to write)")
-		return nil
-	}
-	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("Cloned %d Unit(s) into %s and re-homed %d to namespace %q:",
-		len(r.Cloned), r.Space, r.Rehomed, r.Namespace))
-	for _, s := range r.Cloned {
-		kit.Fprintln(cmd.OutOrStdout(), "  "+s)
-	}
-	write.WriteUnitDiffs(cmd.OutOrStdout(), "set-namespace", r.Diffs)
-	return nil
 }

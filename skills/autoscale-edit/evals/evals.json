@@ -12,7 +12,7 @@
       "id": 2,
       "name": "convert-keda",
       "prompt": "Convert the web HPA in web-prod to a KEDA ScaledObject.",
-      "expected_output": "Previews `cub manage autoscale convert-keda web-prod/web` (dry-run prints the ScaledObject), then commits with `--commit --change-desc`. Notes it edits the Unit, not the cluster, and KEDA must be installed to apply.",
+      "expected_output": "Previews `cub manage autoscale convert-keda web-prod/web` (dry-run shows the diff: the HPA deleted, the ScaledObject added), then commits with `--commit --change-desc`. Notes it edits the Unit, not the cluster, and KEDA must be installed to apply.",
       "files": []
     },
     {

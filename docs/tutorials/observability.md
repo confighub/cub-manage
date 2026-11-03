@@ -43,24 +43,36 @@ dangling ServiceMonitor = low).
 ## 3. Author a ServiceMonitor from a Service
 
 `ensure-servicemonitor` reads a Service Unit's labels, namespace, and metrics port
-and authors a matching ServiceMonitor Unit. Dry-run shows exactly what it would
-create:
+and makes a matching ServiceMonitor Unit, `<service>-sm`. It creates the Unit, or
+brings an existing one up to date, so a re-run changes nothing. Dry-run shows
+exactly what it would create:
 
 ```console
-$ cub manage observability ensure-servicemonitor apptique-dev/frontend --port metrics
-{
-  "action": "create-servicemonitor",
-  "dryRun": true,
-  "space": "apptique-dev",
-  "namespace": "apptique",
-  "unit": "frontend-sm",
-  "manifest": "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: frontend-sm\n  namespace: apptique\nspec:\n  selector:\n    matchLabels:\n      app: frontend\n  endpoints:\n  - port: metrics\n"
-}
+$ cub manage observability ensure-servicemonitor apptique-dev/frontend --port metrics -o table
+UNIT         MUTATED  ERROR
+frontend-sm  yes      -
+
+ensure-servicemonitor: 1 of 1 Unit(s) would change (dry-run — pass --commit --change-desc to write)
+
+Changes to unit apptique-dev/frontend-sm from ensure-servicemonitor:
+Resource: monitoring.coreos.com/v1/ServiceMonitor apptique/frontend-sm  (added)
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: frontend-sm
+      namespace: apptique
+    spec:
+      selector:
+        matchLabels:
+          app: frontend
+      endpoints:
+      - port: metrics
 ```
 
 The selector (`app: frontend`) is derived from the Service's own labels, so it
 matches by construction. Re-run with `--commit --change-desc "…"` to create the
-Unit (it isn't applied to a cluster until you apply it). `ensure-servicemonitor`
+Unit; the report then ends by noting it is not released until
+`cub release publish apptique-dev`. `ensure-servicemonitor`
 refuses when the Service has no labels or no metrics port and no `--port` — it
 won't guess.
 
@@ -137,7 +149,7 @@ $ cub manage guardrails status -o table           # Units now carrying warnings
 ```
 
 Promote the rule to blocking later with
-`cub trigger update servicemonitor-coverage --space common --unwarn`.
+`cub trigger update observability-servicemonitor-coverage --space common --unwarn`.
 
 ## Reference
 

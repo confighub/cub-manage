@@ -3,13 +3,14 @@ module github.com/confighub/cub-manage
 go 1.26.0
 
 require (
-	github.com/confighub/sdk/cliutil v0.10.3
-	github.com/confighub/sdk/configkit/k8skit v0.10.3
-	github.com/confighub/sdk/core v0.10.3
-	github.com/confighub/sdk/managerkit v0.10.3
+	github.com/confighub/sdk/cliutil v0.10.4
+	github.com/confighub/sdk/configkit/k8skit v0.10.4
+	github.com/confighub/sdk/core v0.10.4
+	github.com/confighub/sdk/managerkit v0.10.4
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -25,8 +26,8 @@ require (
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
-	github.com/confighub/sdk/configkit/yqkit v0.10.3 // indirect
-	github.com/confighub/sdk/cubutil v0.10.3 // indirect
+	github.com/confighub/sdk/configkit/yqkit v0.10.4 // indirect
+	github.com/confighub/sdk/cubutil v0.10.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dimchansky/utfbom v1.1.1 // indirect
 	github.com/elliotchance/orderedmap v1.8.0 // indirect
@@ -95,5 +96,4 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/kustomize/kyaml v0.19.0 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )

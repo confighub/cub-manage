@@ -10,29 +10,20 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/confighub/sdk/cliutil"
-	"github.com/confighub/sdk/managerkit"
+	"github.com/confighub/sdk/core/cubapi"
+	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/autoscale/localexec"
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/kit"
 )
 
-type convertPlan struct {
-	Action   string `json:"action"`
-	DryRun   bool   `json:"dryRun"`
-	Space    string `json:"space"`
-	Unit     string `json:"unit"`
-	Changed  bool   `json:"changed"`
-	Revision int64  `json:"revision,omitempty"`
-	Manifest string `json:"manifest,omitempty"`
-}
-
 func newConvertCmd() *cobra.Command {
 	var output string
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "convert-keda <space>/<unit>",
-		Short: "Convert a HorizontalPodAutoscaler Unit to a KEDA ScaledObject (dry-run unless --commit)",
+		Short: "Convert a HorizontalPodAutoscaler Unit to a KEDA ScaledObject",
 		Long: `convert-keda rewrites a Unit's HorizontalPodAutoscaler into an equivalent KEDA
 ScaledObject, preserving min/max replicas and cpu/memory metrics.
 
@@ -42,15 +33,14 @@ it locally (no server-side function), and writes the result back as a
 new Unit revision. cpu/memory Resource metrics become KEDA cpu/memory triggers;
 Pods/Object/External metrics are not converted (KEDA needs a matching scaler).
 
-Dry-run by default (prints the resulting ScaledObject); --commit --change-desc
-writes the revision. The Unit is edited, not published — rolling it out is a
-separate 'cub release publish <space>', which bundles the Space's Units for its
-release Target. Deploying KEDA ScaledObjects also requires the KEDA operator
-installed in the target cluster.
+Dry-run by default (shows what the conversion would change); --commit
+--change-desc writes the revision. Deploying KEDA ScaledObjects requires the KEDA
+operator installed in the target cluster.
 
 To schema-validate the generated ScaledObject automatically, install the
-guardrails pack ('cub manage autoscale guardrails install --commit'): its schema-valid
-trigger runs vet-schemas on every mutation, and keda.sh is in the schema catalog.`,
+tool-level schema group ('cub manage guardrails install --commit'): its
+schema-valid rule runs vet-schemas on every change, and the KEDA schemas are in
+its catalog.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			space, unit, ok := strings.Cut(args[0], "/")
@@ -70,7 +60,7 @@ trigger runs vet-schemas on every mutation, and keda.sh is in the schema catalog
 			if err != nil {
 				return err
 			}
-			unitData, err := cub.GetUnitData(ctx, client, ref)
+			unitData, etag, err := cub.GetUnitData(ctx, client, ref)
 			if err != nil {
 				return err
 			}
@@ -78,37 +68,17 @@ trigger runs vet-schemas on every mutation, and keda.sh is in the schema catalog
 			if err != nil {
 				return err
 			}
-
-			plan := convertPlan{Action: "convert-hpa-to-keda", DryRun: dryRun, Space: space, Unit: unit, Changed: changed}
-			out := cmd.OutOrStdout()
-			if !changed {
-				plan.Manifest = unitData
-				if done, err := managerkit.Render(out, output, plan); done || err != nil {
+			// With no HorizontalPodAutoscaler to convert there is nothing to write,
+			// and the report says the Unit is unchanged, as any edit's does.
+			res := &cubapi.Result{DryRun: dryRun, Outcomes: []cubapi.UnitOutcome{{
+				UnitID: ref.UnitID.String(), SpaceSlug: space, UnitSlug: unit, Success: true,
+			}}}
+			if changed {
+				if res, err = cub.UpdateUnitData(ctx, client, ref, mutated, etag, write.Change(changeDesc, dryRun)); err != nil {
 					return err
 				}
-				kit.Fprintln(out, fmt.Sprintf("No HorizontalPodAutoscaler to convert in %s/%s — nothing to do.", space, unit))
-				return nil
 			}
-			plan.Manifest = mutated
-			if dryRun {
-				if done, err := managerkit.Render(out, output, plan); done || err != nil {
-					return err
-				}
-				kit.Fprintln(out, fmt.Sprintf("Dry run — would convert the HPA in %s/%s to a KEDA ScaledObject:", space, unit))
-				kit.Fprintln(out, "")
-				kit.Fprintln(out, mutated)
-				kit.Fprintln(out, "Re-run with --commit --change-desc \"…\" to write the revision. It is not applied until you apply it.")
-				return nil
-			}
-
-			if _, err := cub.PutUnitData(ctx, client, ref.SpaceID, ref.UnitID, mutated, changeDesc); err != nil {
-				return err
-			}
-			if done, err := managerkit.Render(out, output, plan); done || err != nil {
-				return err
-			}
-			kit.Fprintln(out, fmt.Sprintf("Converted %s/%s to a KEDA ScaledObject (new revision). Publish the Space to deploy: cub release publish %s", space, unit, space))
-			return nil
+			return write.ReportMutations(cmd, "convert-keda", space, dryRun, output, res)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)

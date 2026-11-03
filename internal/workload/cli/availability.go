@@ -79,9 +79,9 @@ Single-replica workloads and DaemonSet / Job / CronJob / Pod are out of scope
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	cmd.Flags().StringVar(&clusterFilter, "cluster", "", "restrict output to this cluster (Target slug, or None for Units whose Space has no release Target)")
-	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "filter by namespace")
-	cmd.Flags().BoolVar(&issuesOnly, "issues-only", false, "only workloads with an availability issue")
+	kit.AddClusterFlag(cmd, &clusterFilter)
+	kit.AddNamespaceFlag(cmd, &namespaceFilter)
+	kit.AddIssuesOnlyFlag(cmd, &issuesOnly, "workloads with an availability issue")
 	return cmd
 }
 

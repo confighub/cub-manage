@@ -95,6 +95,22 @@ func AddFilterFlags(cmd *cobra.Command, f *FilterFlags) {
 	managerkit.BindComponentResolver(cmd, f, cub.Preflight)
 }
 
+// AddClusterFlag binds --cluster, the display filter on a Target slug.
+func AddClusterFlag(cmd *cobra.Command, dest *string) {
+	cmd.Flags().StringVar(dest, "cluster", "", "only this cluster (a Target slug, or None for Units whose Space has no release Target)")
+}
+
+// AddNamespaceFlag binds --namespace, the display filter on a namespace.
+func AddNamespaceFlag(cmd *cobra.Command, dest *string) {
+	cmd.Flags().StringVar(dest, "namespace", "", "only this namespace")
+}
+
+// AddIssuesOnlyFlag binds --issues-only, which narrows a report to the rows
+// with a problem. what says what a problem is in this report.
+func AddIssuesOnlyFlag(cmd *cobra.Command, dest *bool, what string) {
+	cmd.Flags().BoolVar(dest, "issues-only", false, "only "+what)
+}
+
 func Fprintln(w io.Writer, a ...any)         { cliutil.Fprintln(w, a...) }
 func ParseScore(s string) (api.Score, error) { return api.ParseScore(s) }
 func Dash(s string) string                   { return cliutil.Dash(s) }

@@ -26,14 +26,14 @@
       "id": 4,
       "name": "promote-to-blocking-routes-to-cub",
       "prompt": "Make the no-wildcards guardrail actually block deploys, not just warn.",
-      "expected_output": "Explains that promoting a guardrail to blocking is `cub trigger update no-rbac-wildcards --space <policy-space> --unwarn` and that it is a deliberate cub action, rather than attempting it through cub manage rbac. May confirm current state with guardrails status first.",
+      "expected_output": "Explains that promoting a guardrail to blocking is `cub trigger update rbac-no-wildcards --space <policy-space> --unwarn` and that it is a deliberate cub action, rather than attempting it through cub manage rbac. May confirm current state with guardrails status first.",
       "files": []
     },
     {
       "id": 5,
       "name": "one-off-validation-routes-to-findings",
       "prompt": "Do we have any wildcard roles right now? I don't want to install anything yet.",
-      "expected_output": "Recognizes this is one-off analysis, not installation, and routes to rbac-findings (`cub manage rbac findings --analyzer wildcard-rules`) instead of `guardrails install`.",
+      "expected_output": "Recognizes this is one-off analysis, not installation, and routes to rbac-findings (`cub manage rbac findings --analyzer wildcard-rule`) instead of `guardrails install`.",
       "files": []
     }
   ]

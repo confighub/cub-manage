@@ -16,8 +16,8 @@ Prometheus **ServiceMonitor coverage** is a cross-Unit property: the ServiceMoni
 ## When to use
 
 - "What ServiceMonitors / Services do we have?" → `snapshot`, `list`.
-- "Which Services expose metrics, and are they scraped?" → `coverage` (`--uncovered-only` for gaps).
-- "Which workloads have an otel sidecar?" → `sidecars` (`--missing-only`, `--sidecar`).
+- "Which Services expose metrics, and are they scraped?" → `coverage` (`--issues-only` for gaps).
+- "Which workloads have an otel sidecar?" → `sidecars` (`--issues-only`, `--sidecar`).
 - "Per-cluster observability counts." → `snapshot`.
 
 ## Do not load for
@@ -38,7 +38,7 @@ Prometheus **ServiceMonitor coverage** is a cross-Unit property: the ServiceMoni
 - `cub manage observability sidecars -o table` — per workload, telemetry-sidecar presence.
 - `cub manage observability list -o table` — ServiceMonitor + Service explorer.
 
-Scope server-side with `--where` + label shorthands (`--component`, `--environment`, …); `--cluster` / `--namespace` are client-side.
+Scope server-side with `--where` + `--component` and the label shorthands (`--environment`, …); `--cluster` / `--namespace` are client-side.
 
 ## Stop conditions
 

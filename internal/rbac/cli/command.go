@@ -25,7 +25,8 @@ func NewCommand() *cobra.Command {
 		Long: `rbac manages Kubernetes RBAC -- Role, ClusterRole, RoleBinding,
 ClusterRoleBinding and ServiceAccount -- across the fleet: inventory, effective
 access ('who-can', and its inverse 'access'), hygiene findings, and edits to
-roles and bindings.
+roles and bindings: the rbac-* profiles, applied to one Unit with
+'cub manage profile apply' or across the fleet with 'fleet-edit'.
 
 Which RBAC a namespace should start with is part of the namespace template that
 'cub manage namespace backfill' copies; whether that RBAC is sound is this
@@ -42,7 +43,6 @@ command's subject.
 		newFindingsCmd(),
 	)
 	kit.AddWriteCommands(cmd,
-		newEditCmd(),
 		newFleetEditCmd(),
 		newGuardrailsCmd(),
 	)

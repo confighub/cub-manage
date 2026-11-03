@@ -26,7 +26,9 @@ func NewCommand() *cobra.Command {
 them together with the Namespaces, workloads and Services they have to cover:
 coverage, effective connectivity ('who-can-reach', 'reachable-from'), findings,
 and authoring policies -- including allows derived from the dependency graph
-ConfigHub Links record.
+ConfigHub Links record. Fixes to existing policies are the netpol-* profiles,
+applied to one Unit with 'cub manage profile apply' or across the fleet with
+'fleet-edit'.
 
 ` + kit.DomainHelpFooter,
 	}
@@ -43,8 +45,7 @@ ConfigHub Links record.
 		newDefaultDenyCmd(),
 		newAllowCmd(),
 		newAllowFromLinksCmd(),
-		newFixCmd(),
-		newFleetCmd(),
+		newFleetEditCmd(),
 		newGuardrailsCmd(),
 	)
 	return cmd

@@ -87,8 +87,8 @@ func TestBuildFleet(t *testing.T) {
 func TestFindings_Pinned(t *testing.T) {
 	clusters := BuildFleet([]FleetResource{res("c1", doc(t, pinnedHPAJSON))})
 	fs := Findings(clusters)
-	if !hasFinding(fs, "autoscaler-pinned", "api") {
-		t.Fatalf("expected autoscaler-pinned for api, got %+v", fs)
+	if !hasFinding(fs, "pinned-autoscaler", "api") {
+		t.Fatalf("expected pinned-autoscaler for api, got %+v", fs)
 	}
 }
 
@@ -99,10 +99,10 @@ func TestFindings_NoAutoscaler(t *testing.T) {
 		res("c1", doc(t, deploymentJSON("web", 3, "web"))),
 	})
 	fs := Findings(clusters)
-	if !hasFinding(fs, "no-autoscaler", "lonely") {
-		t.Fatalf("expected no-autoscaler for lonely, got %+v", fs)
+	if !hasFinding(fs, "missing-autoscaler", "lonely") {
+		t.Fatalf("expected missing-autoscaler for lonely, got %+v", fs)
 	}
-	if hasFinding(fs, "no-autoscaler", "web") {
+	if hasFinding(fs, "missing-autoscaler", "web") {
 		t.Fatalf("web is autoscaled; should not be flagged: %+v", fs)
 	}
 }

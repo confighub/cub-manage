@@ -12,7 +12,7 @@
       "id": 2,
       "name": "unconstrained",
       "prompt": "Which workloads can land on any node?",
-      "expected_output": "Runs `cub manage scheduling placement --unconstrained-only` and reports workloads with no nodeSelector and no required node affinity.",
+      "expected_output": "Runs `cub manage scheduling placement --issues-only` and reports workloads with no nodeSelector and no required node affinity.",
       "files": []
     },
     {
