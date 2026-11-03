@@ -25,23 +25,41 @@ conventions every group follows, and where each group's responsibility ends.
 The tool is meant to be driven by an AI agent as well as used by people. The agent skills in
 [`skills/`](skills) teach an agent when and how to use each command.
 
-## Build and install
+## Install
 
 ```sh
-make build                  # -> bin/cub-manage
-make test
-```
-
-Install the build as a `cub` plugin to run it as `cub manage`, or run `bin/cub-manage` directly:
-
-```sh
-cub plugin install ./bin/cub-manage
+cub plugin install confighub/cub-manage            # the latest release
+cub plugin install confighub/cub-manage@v0.1.0     # a given release
+cub plugin upgrade manage                          # move to the latest release
 ```
 
 `cub-manage` uses your `cub` session. Sign in with `cub auth login`, then check with:
 
 ```sh
 cub manage preflight
+```
+
+## Build
+
+```sh
+make build                  # -> bin/cub-manage
+make test
+```
+
+Install a build as the plugin, or run `bin/cub-manage` directly:
+
+```sh
+cub plugin install ./bin/cub-manage
+```
+
+## Release
+
+Push a tag `vX.Y.Z` on `main`. The release workflow tests, builds a binary for Linux and macOS
+on amd64 and arm64 with the version stamped in, and publishes them as a GitHub release, which
+is what `cub plugin install confighub/cub-manage` installs.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 ## Examples
