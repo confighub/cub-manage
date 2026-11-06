@@ -28,6 +28,13 @@
       "prompt": "Add a PodDisruptionBudget to the checkout deployment.",
       "expected_output": "Recognizes this is a fix, not a report, and routes to workload-harden / `cub manage workload ensure-pdb` rather than mutating from this read-only skill.",
       "files": []
+    },
+    {
+      "id": 5,
+      "name": "routes-spread-fix-elsewhere",
+      "prompt": "Fix the workloads with SPREAD = no.",
+      "expected_output": "Recognizes spread fixes are owned by cub manage scheduling and routes to scheduling-spread (`cub manage scheduling set-topology-spread`, or `fleet-edit --profile topology-spread-soft` for many) rather than mutating from this read-only skill.",
+      "files": []
     }
   ]
 }

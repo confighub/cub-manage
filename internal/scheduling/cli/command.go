@@ -21,14 +21,21 @@ func InvocationName() string { return kit.InvocationName(Domain) }
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   Domain,
-		Short: "Workload placement: nodeSelector, tolerations, and node affinity",
-		Long: `scheduling manages where Kubernetes workloads may land -- nodeSelector,
-tolerations, and node affinity -- across the fleet.
+		Short: "Scheduling constraints: placement (nodeSelector, tolerations, node affinity) and spread (topology spread, pod anti-affinity)",
+		Long: `scheduling manages the constraints the Kubernetes scheduler reads, across the
+fleet:
+
+  placement  which nodes a workload may land on: nodeSelector, tolerations,
+             node affinity
+  spread     how its replicas spread across zones and nodes: topology spread
+             constraints, pod anti-affinity, and each cluster's default spread
+             constraints
 
 A toleration only permits a pod onto a tainted node; it does not put it there,
 so a workload counts as constrained only with a nodeSelector or a required node
-affinity. Spreading a workload's own replicas across nodes or zones is
-availability, and is 'cub manage workload ensure-spread'.
+affinity. A Deployment, ReplicaSet or StatefulSet with no spread constraints of
+its own gets its cluster's defaults, which 'spread' reports from the cluster's
+Target.
 
 ` + kit.DomainHelpFooter,
 	}
@@ -37,12 +44,15 @@ availability, and is 'cub manage workload ensure-spread'.
 		newSnapshotCmd(),
 		newListCmd(),
 		newPlacementCmd(),
+		newSpreadCmd(),
 		newFindingsCmd(),
 	)
 	kit.AddWriteCommands(cmd,
 		newSetNodeSelectorCmd(),
 		newSetTolerationsCmd(),
 		newSetNodeAffinityCmd(),
+		newSetTopologySpreadCmd(),
+		newSetPodAntiAffinityCmd(),
 		newFleetEditCmd(),
 		newGuardrailsCmd(),
 	)

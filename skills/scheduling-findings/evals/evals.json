@@ -4,8 +4,8 @@
     {
       "id": 1,
       "name": "ranked-findings",
-      "prompt": "What placement problems do our workloads have?",
-      "expected_output": "Runs `cub manage preflight` then `cub manage scheduling findings` (JSON or -o table) and reports placement findings most-severe first. Read-only.",
+      "prompt": "What scheduling problems do our workloads have?",
+      "expected_output": "Runs `cub manage preflight` then `cub manage scheduling findings` (JSON or -o table) and reports placement and spread findings most-severe first. Read-only.",
       "files": []
     },
     {
@@ -27,6 +27,13 @@
       "name": "routes-fix-elsewhere",
       "prompt": "Fix those placement findings.",
       "expected_output": "Recognizes fixing is a write action and routes to scheduling-place rather than mutating from this read-only skill.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "spread-pending-risk",
+      "prompt": "Could any of our workloads get stuck Pending because of how they spread?",
+      "expected_output": "Runs `cub manage scheduling findings` (optionally --analyzer unknown-topology-key,spread-min-domains-exceeds-zones,required-anti-affinity-per-node) and reports the matching findings; routes any fix to scheduling-spread rather than mutating here. Read-only.",
       "files": []
     }
   ]

@@ -23,6 +23,8 @@ type clusterSummary struct {
 	WithSelector    int    `json:"withNodeSelector"`
 	WithToleration  int    `json:"withTolerations"`
 	WithAffinity    int    `json:"withNodeAffinity"`
+	WithSpread      int    `json:"withTopologySpread"`
+	WithAnti        int    `json:"withPodAntiAffinity"`
 	Units           int    `json:"units"`
 	GatedUnits      int    `json:"gatedUnits"`
 	UnreleasedUnits int    `json:"unreleasedUnits"`
@@ -36,6 +38,8 @@ type snapshotReport struct {
 		WithSelector    int `json:"withNodeSelector"`
 		WithToleration  int `json:"withTolerations"`
 		WithAffinity    int `json:"withNodeAffinity"`
+		WithSpread      int `json:"withTopologySpread"`
+		WithAnti        int `json:"withPodAntiAffinity"`
 		Units           int `json:"units"`
 		GatedUnits      int `json:"gatedUnits"`
 		UnreleasedUnits int `json:"unreleasedUnits"`
@@ -48,10 +52,11 @@ func newSnapshotCmd() *cobra.Command {
 	var filter kit.FilterFlags
 	cmd := &cobra.Command{
 		Use:   "snapshot",
-		Short: "Fleet inventory: per-cluster workload counts and how many pin placement",
-		Long: `snapshot loads the fleet-wide placement view and reports a per-cluster inventory:
-workload counts, and how many set a nodeSelector, tolerations, or node affinity,
-plus how many Units are gated or unreleased.
+		Short: "Fleet inventory: per-cluster workload counts and how many set each scheduling constraint",
+		Long: `snapshot loads the fleet-wide scheduling view and reports a per-cluster
+inventory: workload counts, and how many set a nodeSelector, tolerations, node
+affinity, topology spread constraints, or pod anti-affinity, plus how many Units
+are gated or unreleased. 'spread' shows each cluster's default spread constraints.
 
 Clusters are ConfigHub Targets (the Space slug is used for unbound Units).
 Canonical base/policy Spaces are excluded.`,
@@ -105,6 +110,12 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 			if w.HasNodeAffinity {
 				cs.WithAffinity++
 			}
+			if len(w.TopologySpread) > 0 {
+				cs.WithSpread++
+			}
+			if len(w.PodAntiAffinity) > 0 {
+				cs.WithAnti++
+			}
 		}
 	}
 	for _, u := range snap.Units {
@@ -134,6 +145,8 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 		report.Totals.WithSelector += cs.WithSelector
 		report.Totals.WithToleration += cs.WithToleration
 		report.Totals.WithAffinity += cs.WithAffinity
+		report.Totals.WithSpread += cs.WithSpread
+		report.Totals.WithAnti += cs.WithAnti
 		report.Totals.Units += cs.Units
 		report.Totals.GatedUnits += cs.GatedUnits
 		report.Totals.UnreleasedUnits += cs.UnreleasedUnits
@@ -145,14 +158,14 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 
 func printSnapshotTable(cmd *cobra.Command, r snapshotReport) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "CLUSTER\tWORKLOADS\tNODESELECTOR\tTOLERATIONS\tNODEAFFINITY\tUNITS\tGATED\tUNAPPLIED")
+	fmt.Fprintln(tw, "CLUSTER\tWORKLOADS\tNODESELECTOR\tTOLERATIONS\tNODEAFFINITY\tSPREAD\tANTI-AFFINITY\tUNITS\tGATED\tUNAPPLIED")
 	for _, c := range r.Clusters {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
-			c.Cluster, c.Workloads, c.WithSelector, c.WithToleration, c.WithAffinity, c.Units, c.GatedUnits, c.UnreleasedUnits)
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			c.Cluster, c.Workloads, c.WithSelector, c.WithToleration, c.WithAffinity, c.WithSpread, c.WithAnti, c.Units, c.GatedUnits, c.UnreleasedUnits)
 	}
 	_ = tw.Flush()
 	kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf(
-		"\n%d clusters, %d workloads (%d nodeSelector, %d tolerations, %d nodeAffinity), %d units (%d gated, %d unreleased)",
-		r.Totals.Clusters, r.Totals.Workloads, r.Totals.WithSelector, r.Totals.WithToleration, r.Totals.WithAffinity,
+		"\n%d clusters, %d workloads (%d nodeSelector, %d tolerations, %d nodeAffinity, %d topology spread, %d pod anti-affinity), %d units (%d gated, %d unreleased)",
+		r.Totals.Clusters, r.Totals.Workloads, r.Totals.WithSelector, r.Totals.WithToleration, r.Totals.WithAffinity, r.Totals.WithSpread, r.Totals.WithAnti,
 		r.Totals.Units, r.Totals.GatedUnits, r.Totals.UnreleasedUnits))
 }

@@ -24,12 +24,14 @@ func NewCommand() *cobra.Command {
 		Short: "Workload readiness: security context, resources, probes, and availability",
 		Long: `workload manages the security and reliability posture of Kubernetes
 workloads across the fleet -- container and pod security context, resource
-requests and limits, probes, and availability (PodDisruptionBudget coverage and
-spreading a workload's own replicas with pod anti-affinity or topology spread)
--- as a per-workload readiness scorecard, findings, and fixes.
+requests and limits, probes, and availability (PodDisruptionBudget coverage, and
+whether a workload's replicas are spread so one node or zone cannot take them
+all) -- as a per-workload readiness scorecard, findings, and fixes.
 
-Which nodes a workload may land on is 'cub manage scheduling'; how many
-replicas it runs, when an autoscaler sets that, is 'cub manage autoscale'.
+Scheduling constraints -- which nodes a workload may land on, and how its
+replicas spread (topology spread, pod anti-affinity) -- are 'cub manage
+scheduling', which sets the spread this group checks for; how many replicas it
+runs, when an autoscaler sets that, is 'cub manage autoscale'.
 
 ` + kit.DomainHelpFooter,
 	}
@@ -46,7 +48,6 @@ replicas it runs, when an autoscaler sets that, is 'cub manage autoscale'.
 		newSetResourcesCmd(),
 		newSetProbesCmd(),
 		newEnsurePDBCmd(),
-		newEnsureSpreadCmd(),
 		newFleetEditCmd(),
 		newGuardrailsCmd(),
 	)

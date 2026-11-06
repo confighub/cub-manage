@@ -28,6 +28,13 @@
       "prompt": "Harden every workload in prod.",
       "expected_output": "Recognizes this is a fleet-wide change and routes to workload-fleet (`fleet-edit --profile harden-restricted --environment prod`) rather than looping single harden commands.",
       "files": []
+    },
+    {
+      "id": 5,
+      "name": "routes-spread-elsewhere",
+      "prompt": "The frontend deployment has a missing-spread finding. Spread it across zones.",
+      "expected_output": "Recognizes spread is owned by cub manage scheduling and routes to scheduling-spread (`cub manage scheduling set-topology-spread apptique-prod/frontend`) rather than inventing a workload command.",
+      "files": []
     }
   ]
 }

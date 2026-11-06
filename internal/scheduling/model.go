@@ -1,14 +1,12 @@
 // Copyright (C) ConfigHub, Inc.
 // SPDX-License-Identifier: MIT
 
-// Package scheduling is the placement analysis engine: it parses the placement
-// fields of pod-bearing workloads (nodeSelector, tolerations, node affinity) into
-// a typed model and reports where each workload is allowed to land, plus
-// placement anti-patterns across the fleet.
-//
-// Placement is "which node a pod lands on". Spreading a workload's own replicas
-// (pod anti-affinity, topology spread) is an availability concern owned by
-// cub manage workload, and is deliberately out of scope here.
+// Package scheduling is the scheduling-constraint analysis engine: it parses
+// the fields of pod-bearing workloads that the scheduler reads (nodeSelector,
+// tolerations, node affinity, pod affinity and anti-affinity, topology spread
+// constraints) into a typed model, joins each cluster's Target facts (its zones,
+// node labels and default spread constraints), and reports where each workload
+// may land, how its replicas spread, and anti-patterns across the fleet.
 //
 // Parsing is lenient: malformed documents are skipped, never errored on.
 package scheduling
@@ -49,7 +47,16 @@ type WorkloadPlacement struct {
 	Tolerations             []Toleration      `json:"tolerations,omitempty"`
 	HasNodeAffinity         bool              `json:"hasNodeAffinity"`
 	HasRequiredNodeAffinity bool              `json:"hasRequiredNodeAffinity"`
-	Origin                  ResourceOrigin    `json:"origin"`
+	// PodLabels are the pod template's labels, which a spread constraint or
+	// anti-affinity term has to select for the Pods to count themselves.
+	PodLabels map[string]string `json:"podLabels,omitempty"`
+	// Replicas is spec.replicas as written; nil when unset or not a field of
+	// the kind.
+	Replicas        *int               `json:"replicas,omitempty"`
+	TopologySpread  []SpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	PodAffinity     []AffinityTerm     `json:"podAffinity,omitempty"`
+	PodAntiAffinity []AffinityTerm     `json:"podAntiAffinity,omitempty"`
+	Origin          ResourceOrigin     `json:"origin"`
 }
 
 // HasNodeSelector reports whether the workload pins to nodes by label.
@@ -86,6 +93,18 @@ func (w *WorkloadPlacement) TolerationKeys() []string {
 type ClusterWorkloads struct {
 	Cluster   string               `json:"cluster"`
 	Workloads []*WorkloadPlacement `json:"workloads"`
+	// Facts is what the cluster's Target says about it; nil until the snapshot
+	// joins it, and then [UnknownClusterFacts] for a cluster with no Target.
+	Facts *ClusterFacts `json:"facts,omitempty"`
+}
+
+// FactsOrUnknown returns the cluster's facts, or the unknown facts when none
+// were joined.
+func (c *ClusterWorkloads) FactsOrUnknown() *ClusterFacts {
+	if c == nil || c.Facts == nil {
+		return UnknownClusterFacts()
+	}
+	return c.Facts
 }
 
 var workloadKinds = map[string]bool{
@@ -125,12 +144,25 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterWorkloads {
 		}
 		namespace, _ := asString(metadata["namespace"])
 		spec, _ := asRecord(rec["spec"])
-		podSpec := podSpecOf(kind, spec)
+		template := podTemplateOf(kind, rec)
+		podSpec, _ := asRecord(template["spec"])
 		w := &WorkloadPlacement{Kind: kind, Name: name, Namespace: namespace, Origin: fr.Origin}
+		if _, ok := spec["replicas"]; ok {
+			n := asInt(spec["replicas"])
+			w.Replicas = &n
+		}
+		if templateMeta, ok := asRecord(template["metadata"]); ok {
+			w.PodLabels = asStringMap(templateMeta["labels"])
+		}
 		if podSpec != nil {
 			w.NodeSelector = asStringMap(podSpec["nodeSelector"])
 			w.Tolerations = parseTolerations(podSpec["tolerations"])
 			w.HasNodeAffinity, w.HasRequiredNodeAffinity = parseNodeAffinity(podSpec["affinity"])
+			w.TopologySpread = parseSpreadConstraints(podSpec["topologySpreadConstraints"])
+			if affinity, ok := asRecord(podSpec["affinity"]); ok {
+				w.PodAffinity = parsePodAffinity(affinity, "podAffinity")
+				w.PodAntiAffinity = parsePodAffinity(affinity, "podAntiAffinity")
+			}
 		}
 		forCluster(fr.Origin.Cluster).Workloads = append(forCluster(fr.Origin.Cluster).Workloads, w)
 	}
@@ -171,22 +203,22 @@ func parseNodeAffinity(v any) (has, hasRequired bool) {
 	return hasRequired || len(preferred) > 0, hasRequired
 }
 
-// podSpecOf returns the pod spec for a workload kind, descending through the
-// kind-specific template path.
-func podSpecOf(kind string, spec map[string]any) map[string]any {
+// podTemplateOf returns the pod template (metadata and spec) for a workload
+// kind, descending through the kind-specific template path. A Pod is its own
+// template.
+func podTemplateOf(kind string, rec map[string]any) map[string]any {
+	spec, _ := asRecord(rec["spec"])
 	switch kind {
 	case "Pod":
-		return spec
+		return rec
 	case "CronJob":
 		jobTemplate, _ := asRecord(spec["jobTemplate"])
 		jobSpec, _ := asRecord(jobTemplate["spec"])
 		template, _ := asRecord(jobSpec["template"])
-		podSpec, _ := asRecord(template["spec"])
-		return podSpec
+		return template
 	default:
 		template, _ := asRecord(spec["template"])
-		podSpec, _ := asRecord(template["spec"])
-		return podSpec
+		return template
 	}
 }
 
@@ -221,6 +253,31 @@ func asArray(v any) []any {
 		return nil
 	}
 	return a
+}
+
+// asInt reads an integer, however the document decoder represented it.
+func asInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case uint64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
+func asStrings(v any) []string {
+	var out []string
+	for _, e := range asArray(v) {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func asStringMap(v any) map[string]string {

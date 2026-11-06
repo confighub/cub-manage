@@ -1,0 +1,40 @@
+{
+  "skill_name": "scheduling-spread",
+  "evals": [
+    {
+      "id": 1,
+      "name": "spread-across-zones",
+      "prompt": "Spread the web deployment in web-prod across zones.",
+      "expected_output": "Runs `cub manage preflight`, checks `cub manage scheduling spread --cluster <c>` for the workload's current source and the cluster default, previews `cub manage scheduling set-topology-spread web-prod/web` (zone, maxSkew 1, ScheduleAnyway) dry-run, then commits with --commit --change-desc. No cluster apply; no gate bypass.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "anti-affinity-prefers-soft",
+      "prompt": "Make sure no two trainer replicas ever run on the same node.",
+      "expected_output": "Previews `cub manage scheduling set-pod-anti-affinity ml-prod/trainer` (preferred, per node) or a hostname topology spread constraint, and warns that `--required` leaves replicas Pending once every node has one, blocking scaling past the node count and a rollout's surge; uses --required only if the user confirms. Dry-run then --commit --change-desc.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "fleet-spread-managed-clusters",
+      "prompt": "Our EKS clusters only get the default spread. Spread every prod workload evenly across zones.",
+      "expected_output": "Runs `cub manage scheduling spread --environment prod` to show the assumed or managed-distribution defaults, then previews `cub manage scheduling fleet-edit --profile topology-spread-soft --environment prod` (dry-run, reports the count), running `cub manage profile install` first if the library is empty, then commits with --commit --change-desc.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "min-domains-needs-donotschedule",
+      "prompt": "Set minDomains 3 on the web deployment's zone spread.",
+      "expected_output": "Explains minDomains needs whenUnsatisfiable DoNotSchedule (the API server rejects it otherwise) and that DoNotSchedule can leave Pods Pending; previews `cub manage scheduling set-topology-spread web-prod/web --when-unsatisfiable DoNotSchedule --min-domains 3` dry-run and commits only on confirmation.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "routes-placement-elsewhere",
+      "prompt": "Pin the trainer to the gpu node pool.",
+      "expected_output": "Recognizes this is placement (nodeSelector / tolerations / node affinity), not spread, and routes to scheduling-place rather than acting here.",
+      "files": []
+    }
+  ]
+}

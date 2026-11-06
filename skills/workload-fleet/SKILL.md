@@ -1,6 +1,6 @@
 ---
 name: workload-fleet
-description: 'Fleet-scale workload remediation and the reusable profile library with the cub manage workload CLI — profile install/list/apply (parameterized Invocations: resource tiers, harden, probes, anti-affinity, termination policy), and fleet-edit (apply a profile across a --where selector of workloads in one operation). Use for "harden every prod workload", "set medium resources across the checkout component", "apply the anti-affinity profile fleet-wide", "list the workload profiles". Dry-run by default; requires --commit --change-desc. Not for a single-workload fix (use workload-harden), read-only checks (use workload-audit / workload-findings), enforcement Triggers (use workload-guardrails), or propagating a fix to downstream variants (use promote-release).'
+description: 'Fleet-scale workload remediation and the reusable profile library with the cub manage workload CLI — profile install/list/apply (parameterized Invocations: resource tiers, harden, probes, termination policy), and fleet-edit (apply a profile across a --where selector of workloads in one operation). Use for "harden every prod workload", "set medium resources across the checkout component", "list the workload profiles". Dry-run by default; requires --commit --change-desc. Not for a single-workload fix (use workload-harden), read-only checks (use workload-audit / workload-findings), enforcement Triggers (use workload-guardrails), spread profiles such as topology-spread-soft / anti-affinity-soft (use scheduling-spread), or propagating a fix to downstream variants (use promote-release).'
 phase: act
 allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload readiness *) Bash(cub manage workload findings *) Bash(cub manage profile) Bash(cub manage profile *) Bash(cub manage workload fleet-edit *)
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --hel
 
 Apply a fix across **many** workloads and manage the reusable **profile library** — as data, dry-run by default. Two surfaces:
 
-- **`cub manage profile install | list | apply`** — the profile library: named, parameterized edits stored as ConfigHub Invocations in the `common` Space (`resources-small/medium/large`, `harden-restricted`, `probes-http`, `anti-affinity-soft`, `termination-message-policy`). `install` seeds them (once per org); `apply <slug> <space>/<unit>` invokes one over a single workload.
+- **`cub manage profile install | list | apply`** — the profile library: named, parameterized edits stored as ConfigHub Invocations in the `common` Space (`resources-small/medium/large`, `harden-restricted`, `probes-http`, `termination-message-policy`). `install` seeds them, with every other group's profiles (once per org); `apply <slug> <space>/<unit>` invokes one over a single workload.
 - **`fleet-edit --profile <slug> [--where/shorthands] [--param]`** — applies a profile to *every* workload matching a selector in one server-side operation (the bulk analog of `cub manage profile apply`), scoped to workload kinds.
 
 All **edit/create Units but do not publish them**.
@@ -31,6 +31,7 @@ All **edit/create Units but do not publish them**.
 - A single-workload fix — use **workload-harden**.
 - Read-only checks — use **workload-audit** / **workload-findings** / **workload-availability**.
 - Enforcement Triggers / guardrails — use **workload-guardrails**.
+- Spread across zones / nodes, including the `topology-spread-soft` and `anti-affinity-soft` profiles — use **scheduling-spread** (`cub manage scheduling fleet-edit`).
 - Propagating a fix from a base Space to its variants — use **promote-release**.
 - Publishing the Space's Release — that is `cub release publish <space>`.
 

@@ -24,9 +24,9 @@
     },
     {
       "id": 4,
-      "name": "routes-availability-elsewhere",
+      "name": "routes-spread-elsewhere",
       "prompt": "Spread the trainer replicas across nodes so a node loss doesn't take them all.",
-      "expected_output": "Recognizes this is availability (pod anti-affinity / topology spread), not placement, and routes to cub manage workload (cub manage workload ensure-spread) rather than acting here.",
+      "expected_output": "Recognizes this is spread (topology spread / pod anti-affinity), not placement, and routes to scheduling-spread (`cub manage scheduling set-topology-spread ml-prod/trainer --topology-key kubernetes.io/hostname` or `set-pod-anti-affinity`) rather than acting here.",
       "files": []
     }
   ]

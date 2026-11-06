@@ -296,7 +296,7 @@ func scoreAvailability(w *WorkloadEntity, pdbs []*PDBEntity) DimensionResult {
 		d.add(StatusFail, CheckPDBBlocksEviction, fmt.Sprintf("PDB %q blocks all voluntary evictions (minAvailable >= replicas or maxUnavailable: 0)", eval.BlockingPDB))
 	}
 	if !eval.HasSpread {
-		d.add(StatusWarn, CheckMissingSpread, "no pod anti-affinity or topology spread (a node/zone loss can take all replicas)")
+		d.add(StatusWarn, CheckMissingSpread, "no pod anti-affinity or topology spread of its own (a node/zone loss can take all replicas; fix with cub manage scheduling set-topology-spread)")
 	}
 	return d
 }
