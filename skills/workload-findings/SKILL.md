@@ -24,7 +24,7 @@ Flatten the fleet readiness scorecard into a single **severity-ranked list** of 
 
 - The raw per-workload scorecard — use **workload-audit** (`readiness`).
 - PDB coverage / spread specifically — use **workload-availability**.
-- Fixing findings — use **workload-harden** (single workload) or **workload-fleet** (bulk).
+- Fixing findings — use **workload-harden** (single workload) or **workload-fleet** (bulk); `missing-spread` is fixed by **scheduling-spread**.
 - Live cluster state — `kubectl`.
 
 ## Preflight gates
@@ -50,7 +50,7 @@ Server-side `--where` + `--component` and the label shorthands (`--environment`,
 ## Stop conditions
 
 - Zero findings in scope — report the fleet is clean for that scope.
-- The user wants to fix something — hand off to **workload-harden** / **workload-fleet**.
+- The user wants to fix something — hand off to **workload-harden** / **workload-fleet** (**scheduling-spread** for `missing-spread`).
 
 ## Tool boundary
 

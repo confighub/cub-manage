@@ -174,8 +174,12 @@ per-workload fixes, each dry-run then commit:
 $ cub manage workload set-resources appvote-dev/vote --tier medium      # cpu/memory requests + limits
 $ cub manage workload set-probes    appvote-dev/vote                    # liveness/readiness/startup
 $ cub manage workload ensure-pdb    appvote-dev/vote                    # make a matching PDB Unit
-$ cub manage workload ensure-spread appvote-dev/vote                    # soft pod anti-affinity
+$ cub manage scheduling set-topology-spread appvote-dev/vote            # spread replicas across zones
 ```
+
+Spread belongs to `cub manage scheduling`, which also reports the default spread
+each cluster gives a workload with none of its own; see the
+[scheduling tutorial](scheduling.md#7-spread).
 
 `ensure-pdb` reads the workload's pod labels and shows the PDB Unit it would make
 (it creates `<workload>-pdb`, or brings an existing one up to date):

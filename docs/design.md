@@ -9,8 +9,8 @@ plugin command `cub manage`, with one command group per concern:
 | `namespace`     | The Namespace object, its Pod Security Standard labels, and its name across a component's variants |
 | `rbac`          | Role, ClusterRole, RoleBinding, ClusterRoleBinding, ServiceAccount                              |
 | `netpol`        | NetworkPolicy, reasoned about against the Namespaces, workloads and Services it covers          |
-| `workload`      | A workload's pod security context, resources, probes, operational hygiene, and availability (PodDisruptionBudgets, replica spread) |
-| `scheduling`    | Where a workload may land: nodeSelector, tolerations, node affinity                             |
+| `workload`      | A workload's pod security context, resources, probes, operational hygiene, and availability (PodDisruptionBudgets, whether replicas are spread) |
+| `scheduling`    | The constraints the scheduler reads: where a workload may land (nodeSelector, tolerations, node affinity) and how its replicas spread (topology spread constraints, pod anti-affinity, each cluster's default spread) |
 | `autoscale`     | HorizontalPodAutoscaler and KEDA ScaledObject                                                   |
 | `observability` | Prometheus ServiceMonitor coverage and telemetry sidecars                                       |
 
@@ -358,18 +358,45 @@ Each check a workload fails is a finding whose analyzer names what is wrong (`mi
 
 Analyses: `readiness` (the scorecard) and `availability`. Fixes: `harden`, `set-resources`,
 `set-probes`, `ensure-pdb` (a PodDisruptionBudget Unit whose selector is the workload's pod
-labels), `ensure-spread`, and profiles for each.
+labels), and profiles for each. Spread is checked here and set by `scheduling` (§7.1).
 
 ### 6.5 scheduling
 
-Reads the placement fields of pod templates. A toleration only permits a pod onto a tainted node;
-it does not put it there. So a workload counts as constrained only with a nodeSelector or a
+Reads the fields of pod templates that the scheduler reads, and each cluster's Target facts.
+
+**Placement** is which nodes a pod may run on. A toleration only permits a pod onto a tainted
+node; it does not put it there. So a workload counts as constrained only with a nodeSelector or a
 required node affinity, and the finding is a workload that tolerates a taint but constrains
 nothing. Fixes: `set-node-selector`, `set-tolerations`, `set-node-affinity`, and placement
 profiles.
 
-Checks that need to know each cluster's node pools and taints — a nodeSelector for a pool no
-cluster has — wait until those are recorded on Targets.
+**Spread** is how a workload's replicas are distributed across zones and nodes: its topology
+spread constraints and pod anti-affinity. A Deployment, ReplicaSet or StatefulSet with no
+constraints of its own gets its cluster's default constraints, which live in the kube-scheduler
+configuration. That configuration cannot be read from a cluster, and on a managed service (EKS,
+GKE, AKS) it cannot be changed, so those clusters run Kubernetes' built-in defaults: a maxSkew of
+3 across nodes and 5 across zones, both only preferred. `spread` reports each cluster's defaults
+and where they are known from — a `Scheduling.DefaultTopologySpread` fact an operator set on the
+Target, the managed distribution the collected `Cluster.Distribution` fact names, or an
+assumption — and, per workload, whether its spread is its own, the cluster's default, or none.
+
+Where the scheduler configuration cannot be changed, a fleet-wide default is written into the
+workloads instead: the `topology-spread-soft` profile applied with `fleet-edit`. That makes the
+default explicit and versioned per workload, at the cost of every workload carrying it.
+
+Findings: minDomains without DoNotSchedule (the API server rejects it); a constraint whose selector
+does not select the workload's own Pods, so they never count toward the skew; a topologyKey no
+node carries (a hard constraint then leaves Pods Pending); minDomains above the cluster's zone count
+with more replicas than the zones can hold; a Deployment's hard constraint without
+`matchLabelKeys: [pod-template-hash]`, which counts both revisions' Pods during a rollout; and
+required anti-affinity per node. The checks on node labels and zones use the `Cluster.Zones` and
+`Cluster.NodeLabelKeys` facts, and are skipped on clusters that have not had them collected.
+Fixes: `set-topology-spread` and `set-pod-anti-affinity`, which upsert one topology key and keep
+the rest, and the `topology-spread-soft` and `anti-affinity-soft` profiles.
+
+Checks that need each cluster's node pools and taints — a nodeSelector for a pool no cluster has,
+or a hard spread constraint that counts tainted nodes the Pods cannot use — wait until those are
+recorded on Targets.
 
 ### 6.6 autoscale
 
@@ -404,14 +431,17 @@ owner.
 | NetworkPolicy                                                             | `netpol`        |
 | Pod and container `securityContext`, `automountServiceAccountToken`       | `workload`      |
 | Container `resources`, probes, `terminationMessagePolicy`                 | `workload`      |
-| PodDisruptionBudget; pod anti-affinity; `topologySpreadConstraints`       | `workload`      |
-| `nodeSelector`, `tolerations`, node affinity                              | `scheduling`    |
+| PodDisruptionBudget                                                       | `workload`      |
+| `nodeSelector`, `tolerations`, `affinity` (node, pod and pod anti-affinity), `topologySpreadConstraints` | `scheduling` |
 | HorizontalPodAutoscaler, KEDA ScaledObject; replica bounds                | `autoscale`     |
 | ServiceMonitor; telemetry sidecar containers                              | `observability` |
 
-Pod anti-affinity and topology spread are availability, not placement: they spread a workload's
-own replicas so that losing one node or zone cannot take all of them, which is the same concern as
-the PodDisruptionBudget. Placement is choosing which nodes a pod may run on.
+`scheduling` owns every field of a pod template that the scheduler reads, because the people who
+set them — operations, platform and infrastructure teams — set them together and against the same
+facts about the clusters: which zones and node pools exist, which taints the nodes carry, and what
+the scheduler does by default. Spreading replicas so that losing one node or zone cannot take all
+of them is also an availability concern, the same one as the PodDisruptionBudget, so `workload`
+keeps checking for it (`missing-spread`) and hands the fix to `scheduling`.
 
 ### 7.2 Handoffs
 
@@ -424,7 +454,7 @@ skills name the other group's command rather than duplicating it.
 | `namespace`     | `backfill` created NetworkPolicy and RBAC Units from a base     | `netpol`, `rbac`| `coverage`, `findings` judge what was copied   |
 | `autoscale`     | `pdb-blocks-min-scale`                                          | `workload`      | relax the PodDisruptionBudget; or `autoscale set-hpa` to raise the minimum |
 | `observability` | `inject-sidecar` added a container                              | `workload`      | `readiness` scores it; `set-resources --container`, `harden` |
-| `scheduling`    | a request to spread replicas                                    | `workload`      | `ensure-spread`                                |
+| `workload`      | `missing-spread`: replicas a node or zone loss can all take     | `scheduling`    | `set-topology-spread`, `set-pod-anti-affinity`, or the `topology-spread-soft` profile |
 | `workload`      | a request to choose nodes                                       | `scheduling`    | `set-node-selector`, `set-node-affinity`       |
 
 ### 7.3 Namespace templates
@@ -486,8 +516,9 @@ reasons.
 - **Read-only skills.** A skill that only reads can only run read commands: its `allowed-tools`
   list nothing that writes.
 - **Warnings where a fix can break something running.** An egress default-deny without DNS; a
-  required anti-affinity that can leave replicas Pending on a cluster with too few nodes (so
-  `ensure-spread` defaults to preferred); a read-only root filesystem on a container that writes
+  required anti-affinity or a DoNotSchedule spread constraint that can leave replicas Pending on a
+  cluster with too few nodes or zones (so `set-pod-anti-affinity` defaults to preferred and
+  `set-topology-spread` to ScheduleAnyway); a read-only root filesystem on a container that writes
   to disk; limits low enough to throttle or kill; a PodDisruptionBudget that would stop node
   drains; a `set-namespace` that re-homes resources in a Space with running workloads.
 
@@ -505,9 +536,10 @@ reasons.
 - **Server-side analysis.** The engines run in the client. A map-reduce over Units on the server
   would let the analyses run where the data is; several group by a field inside the resources (the
   namespace), not by Space or Target, which such a facility would need to support.
-- **Cluster facts.** Whether a cluster's network plugin enforces NetworkPolicy at all, and which
-  node pools and taints it has, recorded on its Target, would qualify `netpol`'s findings and enable
-  `scheduling`'s pool checks.
+- **Cluster facts.** A Target records its cluster's zones, node label keys and managed
+  distribution, which `scheduling`'s spread checks use. Whether its network plugin enforces
+  NetworkPolicy at all, and which node pools and taints it has, would qualify `netpol`'s findings
+  and enable `scheduling`'s pool and taint checks.
 - **Resource-level dependencies.** Links join Units, so `allow-from-links` guesses which resource in
   a Unit is meant. A Link that can name a resource would remove the guess.
 - **Namespace provisioning.** Creating a new component's namespace from a template, and a mutating

@@ -12,24 +12,40 @@ import (
 	"github.com/confighub/cub-manage/internal/scheduling/snapshot"
 )
 
-// analyzers are the analyzers findings runs, which --analyzer names.
-var analyzers = []string{"toleration-without-placement"}
-
 func newFindingsCmd() *cobra.Command {
 	var output string
 	var filter kit.FilterFlags
 	var only kit.FindingFilter
 	cmd := &cobra.Command{
 		Use:   "findings",
-		Short: "Report placement issues across the fleet, most severe first",
-		Long: `findings analyzes the fleet and reports placement issues, most severe first:
+		Short: "Report scheduling-constraint issues across the fleet, most severe first",
+		Long: `findings analyzes the fleet and reports scheduling-constraint issues, most
+severe first:
 
-  placement  a workload that tolerates a taint but does not constrain where it lands
-             (no nodeSelector and no required node affinity), so it may schedule onto
-             general nodes, which is rarely what the toleration was for
+  toleration-without-placement      tolerates a taint but does not constrain where it
+                                    lands (no nodeSelector and no required node
+                                    affinity), so it may schedule onto general nodes
+  spread-min-domains-not-hard       minDomains without DoNotSchedule, which the API
+                                    server rejects
+  unknown-topology-key              a spread constraint or pod (anti-)affinity term
+                                    on a node label no node in the cluster carries:
+                                    a hard spread constraint leaves the Pods Pending,
+                                    anything else has no effect
+  spread-selector-misses-own-pods   a spread constraint whose labelSelector does not
+                                    select the workload's own Pods, so they never
+                                    count toward the skew
+  spread-min-domains-exceeds-zones  minDomains above the cluster's zone count, with
+                                    more replicas than the zones can then hold
+  spread-rollout-without-match-label-keys
+                                    a Deployment's hard spread constraint without
+                                    matchLabelKeys [pod-template-hash], so a rollout
+                                    counts both revisions' Pods together
+  required-anti-affinity-per-node   required pod anti-affinity per node, which blocks
+                                    scaling past the node count and a rollout's surge
 
-Checks that need a cluster's node pools and taints wait for those facts to be
-recorded on its Target.
+The checks on node labels and zones use the facts collected onto each cluster's
+Target, and are skipped where those were not collected. Checks that need a
+cluster's node pools and taints wait for those facts.
 
 Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 		Args: cobra.NoArgs,
@@ -54,7 +70,7 @@ Narrow the report with --severity, --analyzer, --cluster and --namespace.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	kit.AddFindingFlags(cmd, &only, analyzers...)
+	kit.AddFindingFlags(cmd, &only, scheduling.Analyzers...)
 	return cmd
 }
 

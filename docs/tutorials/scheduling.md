@@ -1,8 +1,13 @@
-# Tutorial: managing workload placement with `cub manage scheduling`
+# Tutorial: managing workload scheduling with `cub manage scheduling`
 
-This walks `cub manage scheduling` end to end against a live ConfigHub fleet: see where
-workloads are allowed to land, find the placement anti-pattern, fix it as data,
-and stand up enforcement. Every command and block of output below is real.
+`cub manage scheduling` manages the constraints the Kubernetes scheduler reads:
+**placement** (which nodes a workload may land on: nodeSelector, tolerations, node
+affinity) and **spread** (how its replicas spread across zones and nodes: topology
+spread constraints, pod anti-affinity, and each cluster's default spread).
+
+This walks it end to end against a live ConfigHub fleet: see where workloads are
+allowed to land, find the placement anti-pattern, fix it as data, set how replicas
+spread, and stand up enforcement. Every command and block of output below is real.
 
 `cub manage scheduling` reads and writes ConfigHub Units — it never touches a cluster.
 Its writes create new Unit revisions; rolling those out is a separate `cub unit
@@ -121,10 +126,71 @@ Carrying that change on to the Spaces cloned from a base is variant
 promotion, which lives in `cub` and the **promote-release** skill rather than in
 this tool.
 
-## 7. Enforce with guardrails
+## 7. Spread
 
-`guardrails install` stands up a `Warn=true` `vet-cel` rule
-(`scheduling-toleration-needs-placement`) and wires in-scope Spaces to it. It's
+A Deployment, ReplicaSet or StatefulSet with no topology spread constraints of its
+own gets its cluster's default ones. Those are the cluster's kube-scheduler
+configuration, which cannot be read from the cluster, so `spread` takes them from
+the Target's `Scheduling.DefaultTopologySpread` fact when an operator recorded one,
+and otherwise assumes Kubernetes' built-in defaults (hostname maxSkew 3, zone
+maxSkew 5, both `ScheduleAnyway`), which is what EKS, GKE and AKS run. Start by
+reading what applies:
+
+```console
+$ cub manage scheduling spread -o table --cluster <cluster>
+$ cub manage scheduling spread -o table --issues-only
+```
+
+The first table is per cluster: its distribution, zones, default spread
+constraints, and where those came from (`target-fact`, `managed-distribution` or
+`assumed`). The second is per workload: the constraints that apply, their source
+(`explicit` for its own, `cluster-default`, or `none`), and its pod anti-affinity
+terms. `--issues-only` keeps the workloads with no constraints of their own.
+
+The built-in defaults are soft and loose — a zone may hold five more replicas than
+another — so give a workload that must survive a zone loss a constraint of its own.
+Each write is a dry run until `--commit --change-desc`:
+
+```console
+$ cub manage scheduling set-topology-spread nsmgr-proto-m3/web                     # zones, maxSkew 1, ScheduleAnyway
+$ cub manage scheduling set-topology-spread nsmgr-proto-m3/web --topology-key kubernetes.io/hostname
+$ cub manage scheduling set-pod-anti-affinity nsmgr-proto-m3/web                   # preferred, per node
+```
+
+`set-topology-spread` replaces any constraint on the same topology key and keeps
+the others; it selects the workload's own Pods and, by default, sets
+`matchLabelKeys: [pod-template-hash]`, so a Deployment's rollout spreads each
+revision on its own. Prefer `ScheduleAnyway` (the default): `DoNotSchedule` and
+`set-pod-anti-affinity --required` can leave replicas `Pending`, and `--min-domains`
+is valid only with `--when-unsatisfiable DoNotSchedule`. `--remove` takes a
+constraint or term away.
+
+To record the defaults of a cluster whose scheduler configuration you set:
+
+```console
+$ cub target update --space <space> --patch <target> \
+    --fact Scheduling.DefaultTopologySpread=topology.kubernetes.io/zone=1:ScheduleAnyway
+```
+
+A managed cluster's defaults cannot be changed, so the fleet-wide substitute is
+the `topology-spread-soft` profile (zones then nodes, maxSkew 1, `ScheduleAnyway`,
+per Deployment revision), applied with `fleet-edit`; `anti-affinity-soft` adds
+preferred pod anti-affinity across nodes the same way:
+
+```console
+$ cub manage scheduling fleet-edit --profile topology-spread-soft --environment prod
+```
+
+`findings` also reports spread that cannot work as written: `minDomains` without
+`DoNotSchedule`, a selector that misses the workload's own Pods, a topology key no
+node carries, `minDomains` above the cluster's zone count, a hard constraint
+without `matchLabelKeys` over a rollout, and required anti-affinity per node.
+
+## 8. Enforce with guardrails
+
+`guardrails install` stands up `Warn=true` `vet-cel` rules
+(`scheduling-toleration-needs-placement`, `scheduling-spread-selects-own-pods`,
+`scheduling-min-domains-needs-donotschedule`) and wires in-scope Spaces to them. It's
 dry-run by default and conservative — it skips Spaces that already select Triggers
 their own way:
 
@@ -134,7 +200,7 @@ $ cub manage scheduling guardrails install --commit        # apply
 $ cub manage guardrails status -o table         # Units now carrying warnings
 ```
 
-Promote the rule to blocking later with
+Promote a rule to blocking later with, for example,
 `cub trigger update scheduling-toleration-needs-placement --space common --unwarn`.
 
 ## Reference
@@ -146,5 +212,6 @@ Promote the rule to blocking later with
 - **Discipline**: reads default to JSON (`-o table` for humans); writes are
   dry-run until `--commit --change-desc`; nothing is published (roll it out with
   `cub release publish <space>` separately); ValidationErrors are never bypassed.
-- **Placement vs availability**: pod anti-affinity and topology spread live in
-  `cub manage workload`, not here.
+- **Scheduling vs availability**: topology spread and pod anti-affinity are set
+  here; `cub manage workload availability` checks whether a multi-replica workload
+  has a PodDisruptionBudget and spread of its own.

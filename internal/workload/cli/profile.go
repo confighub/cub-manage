@@ -28,10 +28,6 @@ const workloadKindsWhereData = "kind IN ('Deployment', 'StatefulSet', 'DaemonSet
 // workload's pod template.
 const terminationMsgYQ = `.spec.template.spec.containers[].terminationMessagePolicy = "FallbackToLogsOnError"`
 
-// antiAffinitySoftYQ adds preferred pod anti-affinity across nodes, using the
-// pod-template labels as the selector.
-const antiAffinitySoftYQ = `.spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution = [{"weight": 100, "podAffinityTerm": {"topologyKey": "kubernetes.io/hostname", "labelSelector": {"matchLabels": .spec.template.metadata.labels}}}]`
-
 // podTemplates confines a set-yq profile to the resources with a pod template, so
 // that it never writes one into another resource in the same Unit.
 var podTemplates = cub.WhereResourceTypes(cub.PodTemplateResourceTypes...)
@@ -82,13 +78,6 @@ var Library = profiles.Library{
 			Slug:        "probes-http",
 			Description: "set-container-probe-defaults (HTTP liveness/readiness/startup on the first port)",
 			Function:    "set-container-probe-defaults",
-		},
-		{
-			Slug:          "anti-affinity-soft",
-			Description:   "set-yq: preferred pod anti-affinity across nodes (selector from pod-template labels)",
-			Function:      "set-yq",
-			Args:          []api.FunctionArgument{profiles.Arg("yq-expression", antiAffinitySoftYQ)},
-			WhereResource: podTemplates,
 		},
 		{
 			Slug:          "termination-message-policy",

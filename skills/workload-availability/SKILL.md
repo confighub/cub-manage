@@ -1,6 +1,6 @@
 ---
 name: workload-availability
-description: 'Report the disruption-survival posture of multi-replica Kubernetes workloads across a ConfigHub fleet with the cub manage workload CLI — PodDisruptionBudget coverage (does a matching PDB exist in some other Unit?), the minAvailable>=replicas / maxUnavailable:0 eviction-lock footgun, and pod anti-affinity / topology spread presence. Use for "which multi-replica workloads have no PDB?", "is workload X covered by a PodDisruptionBudget?", "which workloads could lose every replica to one node/zone failure?", "does this workload have anti-affinity?". Not for security/resources/probes scoring (use workload-audit), ranked findings (use workload-findings), or fixes (use workload-harden); analysis is over ConfigHub-managed Units only.'
+description: 'Report the disruption-survival posture of multi-replica Kubernetes workloads across a ConfigHub fleet with the cub manage workload CLI — PodDisruptionBudget coverage (does a matching PDB exist in some other Unit?), the minAvailable>=replicas / maxUnavailable:0 eviction-lock footgun, and pod anti-affinity / topology spread presence. Use for "which multi-replica workloads have no PDB?", "is workload X covered by a PodDisruptionBudget?", "which workloads could lose every replica to one node/zone failure?", "does this workload have anti-affinity?". Not for security/resources/probes scoring (use workload-audit), ranked findings (use workload-findings), the spread each workload gets or its cluster''s default spread (use scheduling-audit), PDB fixes (use workload-harden), or spread fixes (use scheduling-spread); analysis is over ConfigHub-managed Units only.'
 phase: verify
 allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload availability) Bash(cub manage workload availability *) Bash(cub manage workload snapshot) Bash(cub manage workload snapshot *)
 ---
@@ -24,7 +24,9 @@ Report which multi-replica workloads can survive a voluntary disruption (a node 
 
 - Security context / resources / probes scoring — use **workload-audit** (`readiness`).
 - The ranked list of everything wrong — use **workload-findings**.
-- Fixing gaps (ensure-pdb / ensure-spread) — use **workload-harden**.
+- Fixing PDB coverage (`ensure-pdb`) — use **workload-harden**.
+- Fixing spread (`cub manage scheduling set-topology-spread` / `set-pod-anti-affinity`) — use **scheduling-spread**.
+- Which spread a workload without its own gets from its cluster's defaults — use **scheduling-audit** (`cub manage scheduling spread`).
 - Live cluster state — `kubectl`.
 
 ## Preflight gates
@@ -35,7 +37,7 @@ Report which multi-replica workloads can survive a voluntary disruption (a node 
 
 ### Availability report — `cub manage workload availability`
 
-Per multi-replica workload: replicas, matching PDB (or MISSING), whether the PDB blocks all evictions, and whether spread is present. Single-replica workloads and DaemonSet / Job / CronJob / Pod are out of scope (a PDB gains a single instance nothing).
+Per multi-replica workload: replicas, matching PDB (or MISSING), whether the PDB blocks all evictions, and whether it declares spread of its own (SPREAD = no means it relies on its cluster's default spread, which `cub manage scheduling spread` reports). Single-replica workloads and DaemonSet / Job / CronJob / Pod are out of scope (a PDB gains a single instance nothing).
 
 ```bash
 cub manage workload availability -o table
@@ -54,9 +56,9 @@ Same server-side `--where` + `--component` and the label shorthands (`--environm
 
 ## Tool boundary
 
-Read-only. Fixing coverage (`ensure-pdb`) or spread (`ensure-spread`) lives in **workload-harden**. Never use `kubectl`.
+Read-only. Fixing coverage (`ensure-pdb`) lives in **workload-harden**; fixing spread (`cub manage scheduling set-topology-spread`) lives in **scheduling-spread**. Never use `kubectl`.
 
 ## References
 
 - `cub manage workload availability --help`.
-- Companion skills: **workload-audit**, **workload-findings**, **workload-harden**.
+- Companion skills: **workload-audit**, **workload-findings**, **workload-harden**, **scheduling-spread**, **scheduling-audit**.

@@ -1,31 +1,36 @@
 ---
 name: scheduling-guardrails
-description: 'Install and inspect the placement enforcement pack with the cub manage scheduling CLI — a common Space with a Warn=true vet-cel Trigger that flags controllers which tolerate a taint but do not constrain where they land (no nodeSelector or required node affinity), added to in-scope Spaces as the scheduling guardrail group. guardrails install (dry-run by default) and status (Units with ValidationWarnings/Gates). Use for "enforce that tolerations come with placement", "warn on workloads that tolerate a taint but pin nothing", "which workloads are flagged?". Not for read-only findings (use scheduling-findings) or fixing placement (use scheduling-place).'
+description: 'Install and inspect the scheduling enforcement pack with the cub manage scheduling CLI — a common Space of Warn=true vet-cel Triggers (a controller that tolerates a taint must pin where it lands; a topology spread constraint must select the workload''s own Pods; minDomains only with whenUnsatisfiable DoNotSchedule), added to in-scope Spaces as the scheduling guardrail group. guardrails install (dry-run by default) and status (Units with ValidationWarnings/Gates). Use for "enforce that tolerations come with placement", "warn on workloads that tolerate a taint but pin nothing", "warn on spread constraints that miss their own Pods", "flag minDomains without DoNotSchedule", "which workloads are flagged?". Not for read-only findings (use scheduling-findings), fixing placement (use scheduling-place), or fixing spread (use scheduling-spread).'
 phase: act
 allowed-tools: Bash(cub manage scheduling --help) Bash(cub manage scheduling * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage scheduling guardrails) Bash(cub manage scheduling guardrails *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # scheduling-guardrails
 
-Turn the placement anti-pattern into **enforcement** — an advisory ValidationWarning (promotable to a blocking ValidationError) that fires in the normal apply pipeline.
+Turn the scheduling anti-patterns a single Unit can answer into **enforcement** — an advisory ValidationWarning (promotable to a blocking ValidationError) that fires in the normal apply pipeline.
 
-- **`guardrails install`** — creates the `common` Space, a `Warn=true` `vet-cel` Trigger (`scheduling-toleration-needs-placement`), labeled `Pack: scheduling`, then adds the `scheduling` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
-- **`cub manage guardrails status`** — lists Units carrying placement ValidationWarnings or ValidationErrors.
+- **`guardrails install`** — creates the `common` Space and `Warn=true` `vet-cel` Triggers labeled `Pack: scheduling`, then adds the `scheduling` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`. The rules:
+  - `scheduling-toleration-needs-placement` — a controller that tolerates a taint must pin where it lands (nodeSelector or required node affinity).
+  - `scheduling-spread-selects-own-pods` — a topology spread constraint must have a labelSelector that its own pod template's labels match, or its Pods never count toward the skew.
+  - `scheduling-min-domains-needs-donotschedule` — `minDomains` only with `whenUnsatisfiable: DoNotSchedule`, which the API server otherwise rejects.
+- **`cub manage guardrails status`** — lists Units carrying scheduling ValidationWarnings or ValidationErrors.
 
 ## Why this matters
 
-The rule is a plain **per-resource `vet-cel`** check — a single Unit answers it (does this controller have tolerations but no nodeSelector and no required node affinity?), so no annotate-then-validate is needed. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
+Each rule is a plain **per-resource `vet-cel`** check — a single Unit answers it (does this controller have tolerations but no nodeSelector and no required node affinity? does its spread constraint select its own Pods?), so no annotate-then-validate is needed. The checks that need a cluster's facts (a topologyKey no node carries, minDomains above the zone count) stay in **scheduling-findings**, since a Trigger sees one Unit and not its cluster. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
 
 ## When to use
 
 - "Enforce that tolerations come with real placement." → `guardrails install` (preview), then `--commit`.
 - "Warn on workloads that tolerate a taint but pin nothing." → the installed `vet-cel` Trigger.
+- "Warn on spread constraints that miss their own Pods / minDomains without DoNotSchedule." → the same `guardrails install`.
 - "Which workloads are flagged?" → `cub manage guardrails status`.
 
 ## Do not load for
 
 - Read-only findings — use **scheduling-findings**.
 - Fixing placement — use **scheduling-place**.
+- Fixing spread — use **scheduling-spread**.
 - General Trigger/ValidationError mechanics beyond this pack — use `triggers-and-applygates`.
 
 ## Preflight gates
@@ -35,10 +40,10 @@ The rule is a plain **per-resource `vet-cel`** check — a single Unit answers i
 
 ## The loop
 
-1. **Preview** (dry-run — the default): `cub manage scheduling guardrails install -o table` — prints the Trigger, which Spaces it would wire, which are already wired, and which it skips (with the reason).
-2. **Install** with `--commit`: `cub manage scheduling guardrails install --commit`. The Trigger is `Warn=true` (advisory). Promote it to blocking with `cub trigger update scheduling-toleration-needs-placement --space common --unwarn`.
+1. **Preview** (dry-run — the default): `cub manage scheduling guardrails install -o table` — prints the Triggers, which Spaces it would wire, which are already wired, and which it skips (with the reason).
+2. **Install** with `--commit`: `cub manage scheduling guardrails install --commit`. The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub trigger update <rule> --space common --unwarn`, e.g. `cub trigger update scheduling-min-domains-needs-donotschedule --space common --unwarn`.
 3. **Check** what's flagged: `cub manage guardrails status -o table`.
-4. **Fix** flagged workloads via **scheduling-place**, then re-check.
+4. **Fix** flagged workloads via **scheduling-place** (placement) or **scheduling-spread** (`set-topology-spread`, which selects the workload's own Pods), then re-check.
 
 ## Exceptions
 
@@ -59,9 +64,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged workloads is **scheduling-place**.
+Allowed: `guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged workloads is **scheduling-place** / **scheduling-spread**.
 
 ## References
 
 - `cub manage scheduling guardrails --help`, `… install --help`, `… status --help`.
-- Companion skills: **scheduling-place**, **scheduling-findings**, `triggers-and-applygates`.
+- Companion skills: **scheduling-place**, **scheduling-spread**, **scheduling-findings**, `triggers-and-applygates`.

@@ -46,7 +46,10 @@ workload in the fleet:
   - eviction lock: does a matching PDB block all voluntary evictions
                    (minAvailable >= replicas, or maxUnavailable: 0)?
   - spread       : does the workload declare pod anti-affinity or topology spread
-                   so a node/zone loss can't take every replica?
+                   so a node/zone loss can't take every replica? Setting it is
+                   'cub manage scheduling set-topology-spread'; 'cub manage
+                   scheduling spread' shows the cluster default a workload without
+                   its own gets, which is soft and loose
 
 This is the fleet-wide read a per-Unit validating Trigger cannot do under
 one-resource-per-Unit: it would see a lone workload Unit and can't tell whether a

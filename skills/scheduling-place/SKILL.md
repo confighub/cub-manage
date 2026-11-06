@@ -1,6 +1,6 @@
 ---
 name: scheduling-place
-description: 'Set Kubernetes workload placement as config-as-data with the cub manage scheduling CLI — nodeSelector, tolerations, and node affinity — one workload or across a whole selector via reusable placement profiles. Use for "pin this workload to the gpu pool", "add a toleration for the spot taint", "put the ml deployments on the gpu nodes", "set node affinity to a zone", "apply the placement-gpu profile", "roll placement downstream". Dry-run by default; requires --commit --change-desc. Not for read-only checks (use scheduling-audit / scheduling-findings), enforcement Triggers (use scheduling-guardrails), or pod anti-affinity / topology spread (that is availability, owned by `cub manage workload`).'
+description: 'Set Kubernetes workload placement as config-as-data with the cub manage scheduling CLI — nodeSelector, tolerations, and node affinity — one workload or across a whole selector via reusable placement profiles. Use for "pin this workload to the gpu pool", "add a toleration for the spot taint", "put the ml deployments on the gpu nodes", "set node affinity to a zone", "apply the placement-gpu profile", "roll placement downstream". Dry-run by default; requires --commit --change-desc. Not for read-only checks (use scheduling-audit / scheduling-findings), enforcement Triggers (use scheduling-guardrails), or how replicas spread across zones and nodes — topology spread / pod anti-affinity (use scheduling-spread).'
 phase: act
 allowed-tools: Bash(cub manage scheduling --help) Bash(cub manage scheduling * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage scheduling placement *) Bash(cub manage scheduling findings *) Bash(cub manage scheduling set-node-selector *) Bash(cub manage scheduling set-tolerations *) Bash(cub manage scheduling set-node-affinity *) Bash(cub manage profile) Bash(cub manage profile *) Bash(cub manage scheduling fleet-edit *)
 ---
@@ -33,7 +33,7 @@ A toleration only *permits* scheduling onto a tainted node — pair it with a no
 
 - Read-only checks — use **scheduling-audit** / **scheduling-findings**.
 - Enforcement Triggers — use **scheduling-guardrails**.
-- Pod anti-affinity / topology spread — use **`cub manage workload`** (availability).
+- Topology spread / pod anti-affinity (spreading a workload's own replicas across zones and nodes) — use **scheduling-spread**.
 - Publishing the Space's Release — that is `cub release publish <space>`.
 
 ## Preflight gates
@@ -71,4 +71,4 @@ Allowed: `set-node-selector`, `set-tolerations`, `set-node-affinity`, `cub manag
 ## References
 
 - `cub manage scheduling set-node-selector --help`, `… set-tolerations --help`, `… set-node-affinity --help`, `… profile --help`, `… fleet-edit --help`.
-- Companion skills: **scheduling-audit**, **scheduling-findings**, `promote-release`, `triggers-and-applygates`, `release-publish`.
+- Companion skills: **scheduling-audit**, **scheduling-findings**, **scheduling-spread**, `promote-release`, `triggers-and-applygates`, `release-publish`.

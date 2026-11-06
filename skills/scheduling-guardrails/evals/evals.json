@@ -21,6 +21,13 @@
       "prompt": "Now fix the flagged workloads.",
       "expected_output": "Routes to scheduling-place to remediate (set-node-selector / set-node-affinity / a placement profile), rather than fixing from the guardrails skill.",
       "files": []
+    },
+    {
+      "id": 4,
+      "name": "spread-rules",
+      "prompt": "Warn on workloads whose topology spread constraints don't select their own Pods, or set minDomains without DoNotSchedule.",
+      "expected_output": "Previews `cub manage scheduling guardrails install` (dry-run), which includes the scheduling-spread-selects-own-pods and scheduling-min-domains-needs-donotschedule rules, then `--commit` on confirmation; notes the rules are Warn=true and that checks needing cluster facts (unknown topology key, minDomains above the zone count) are in `cub manage scheduling findings`.",
+      "files": []
     }
   ]
 }

@@ -11,8 +11,8 @@ Each command group owns one concern:
 | `namespace`     | Namespace objects, their Pod Security Standard, and their names across variants           |
 | `rbac`          | Roles, ClusterRoles, their bindings, and ServiceAccounts: effective access and hygiene    |
 | `netpol`        | NetworkPolicy coverage, connectivity, and default-deny                                    |
-| `workload`      | Workload readiness: security context, resources, probes, PodDisruptionBudgets and spread  |
-| `scheduling`    | Placement: nodeSelector, tolerations, node affinity                                       |
+| `workload`      | Workload readiness: security context, resources, probes, PodDisruptionBudgets, spread check |
+| `scheduling`    | Placement and spread: nodeSelector, tolerations, affinity, topology spread constraints    |
 | `autoscale`     | HorizontalPodAutoscalers and KEDA ScaledObjects                                           |
 | `observability` | ServiceMonitor coverage and telemetry sidecars                                            |
 

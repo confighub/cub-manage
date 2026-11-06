@@ -24,9 +24,16 @@
     },
     {
       "id": 4,
-      "name": "routes-availability-elsewhere",
-      "prompt": "Do our multi-replica workloads spread across nodes with anti-affinity?",
-      "expected_output": "Recognizes pod anti-affinity / topology spread is availability, not placement, and routes to cub manage workload (cub manage workload availability) rather than answering here.",
+      "name": "spread-report",
+      "prompt": "Do our multi-replica workloads spread across nodes, or do they rely on the cluster default?",
+      "expected_output": "Runs `cub manage scheduling spread` (JSON or -o table) and reports each workload's spread source (explicit / cluster-default / none) and pod anti-affinity terms, plus each cluster's default spread and its defaultSource (target-fact / managed-distribution / assumed). Read-only.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "routes-fix-elsewhere",
+      "prompt": "Add a zone spread constraint to the workloads that rely on the cluster default.",
+      "expected_output": "Recognizes this is a write and routes to scheduling-spread (`cub manage scheduling set-topology-spread` or `fleet-edit --profile topology-spread-soft`) rather than mutating from this read-only skill.",
       "files": []
     }
   ]
