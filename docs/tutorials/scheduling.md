@@ -201,7 +201,7 @@ $ cub manage guardrails status -o table         # Units now carrying warnings
 ```
 
 Promote a rule to blocking later with, for example,
-`cub trigger update scheduling-toleration-needs-placement --space common --unwarn`.
+`cub manage guardrails update scheduling-toleration-needs-placement --enforce --commit`.
 
 ## Reference
 

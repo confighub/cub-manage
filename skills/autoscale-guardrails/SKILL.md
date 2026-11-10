@@ -39,7 +39,7 @@ Both rules are plain **per-resource** checks — a single Unit answers each, so 
 ## The loop
 
 1. **Preview** (dry-run — the default): `cub manage autoscale guardrails install -o table` — prints the Triggers, which Spaces it would wire, which are already wired, and which it skips (with the reason).
-2. **Install** with `--commit`: `cub manage autoscale guardrails install --commit` (and `cub manage guardrails install --commit` for schema validation). The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub trigger update <slug> --space common --unwarn`.
+2. **Install** with `--commit`: `cub manage autoscale guardrails install --commit` (and `cub manage guardrails install --commit` for schema validation). The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub manage guardrails update <slug> --enforce --commit`.
 3. **Check** what's flagged: `cub manage guardrails status -o table`.
 4. **Fix** flagged autoscalers via **autoscale-edit**, then re-check.
 
@@ -58,7 +58,7 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 ## Stop conditions
 
 - A Space is skipped (its own Triggers, a custom WhereTrigger, or a TriggerFilterID) — report it; wiring it means adding the `autoscale` group to that Space's existing selection, not overwriting it.
-- The user wants a blocking gate now — install advisory first, verify, then `--unwarn`.
+- The user wants a blocking gate now — install advisory first, verify, then `cub manage guardrails update <rule> --enforce --commit`.
 
 ## Tool boundary
 

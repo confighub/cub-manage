@@ -281,7 +281,7 @@ $ cub manage guardrails status -o table       # Units now carrying ValidationWar
 ```
 
 Triggers install advisory (`Warn=true`); promote one to blocking later with
-`cub trigger update <slug> --space common --unwarn`.
+`cub manage guardrails update <slug> --enforce --commit`.
 
 ## Reference
 

@@ -48,7 +48,7 @@ The manager can't set ValidationWarnings directly — only a failed Trigger can.
    ```bash
    cub manage workload guardrails install --commit
    ```
-   Triggers are `Warn=true` (advisory). Promote one to blocking later with `cub trigger update <slug> --space common --unwarn`.
+   Triggers are `Warn=true` (advisory). Promote one to blocking later with `cub manage guardrails update <slug> --enforce --commit`.
 3. **Feed the annotate-then-validate rule** (for PDB coverage):
    ```bash
    cub manage workload guardrails annotate                       # dry-run: which workloads would be annotated
@@ -73,7 +73,7 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 ## Stop conditions
 
 - A Space is skipped (its own Triggers, a custom WhereTrigger, or a TriggerFilterID) — report it; wiring it means adding the `workload` group to that Space's existing selection (a `triggers-and-applygates` task), not overwriting it.
-- The user wants a blocking gate now — install advisory first, verify, then `--unwarn` the specific Trigger.
+- The user wants a blocking gate now — install advisory first, verify, then `cub manage guardrails update <rule> --enforce --commit` for the specific rule.
 
 ## Tool boundary
 

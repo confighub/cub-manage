@@ -20,7 +20,7 @@ Install and inspect a small pack of RBAC validation policies, defined once in a 
 Triggers are created with **Warn=true** → they produce advisory **ValidationWarnings**, never blocking **ValidationErrors**. Installing on an existing fleet never blocks anyone. Promote one to blocking later (a single change, fleet-wide):
 
 ```bash
-cub trigger update rbac-no-wildcards --space <policy-space> --unwarn
+cub manage guardrails update rbac-no-wildcards --policy-space <policy-space> --enforce --commit
 ```
 
 ## Why this matters
@@ -44,7 +44,7 @@ So the rules run on every Mutation in those Spaces, another tool's group is adde
 
 - One-off, non-installed validation of current config — use **rbac-findings**.
 - Editing RBAC config to fix a violation — use **rbac-edit**.
-- Promoting a guardrail to blocking (`cub trigger update --unwarn`) or applying Units — those are `cub` operations, done deliberately by the user.
+- Promoting a guardrail to blocking (`cub manage guardrails update <rule> --enforce --commit`) or applying Units — those are done deliberately by the user.
 
 ## Preflight gates
 
@@ -99,7 +99,7 @@ Each rule's Trigger skips the resources carrying its exception annotation; the o
 
 - Dry-run shows nothing to wire and everything already wired — report that the pack is installed; offer `cub manage guardrails status`.
 - Spaces are skipped for custom trigger wiring — report them so the user can fold the `rbac` group into their existing selection.
-- The user wants a guardrail to actually block (not warn) — point to `cub trigger update <slug> --space <policy-space> --unwarn`.
+- The user wants a guardrail to actually block (not warn) — point to `cub manage guardrails update <rule> --policy-space <policy-space> --enforce --commit`, after `cub manage guardrails rollout` shows how many Units it would block.
 
 ## References
 

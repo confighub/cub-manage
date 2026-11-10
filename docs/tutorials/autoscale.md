@@ -209,7 +209,7 @@ $ cub function do --space nsmgr-proto-m3 --where "Slug = 'web-hpa'" vet-schemas
 
 `cub manage guardrails status -o table` lists Units now carrying warnings. Promote a rule to
 blocking later with
-`cub trigger update autoscale-not-pinned --space common --unwarn`.
+`cub manage guardrails update autoscale-not-pinned --enforce --commit`.
 
 ## Reference
 

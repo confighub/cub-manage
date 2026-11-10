@@ -64,7 +64,7 @@ var schemaPack = guardrails.Pack{
 func newGuardrailsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guardrails",
-		Short: "Install the tool-level guardrail group; report marked Units; manage exceptions",
+		Short: "Install the tool-level guardrail group; report marked Units; manage exceptions and enforcement",
 		Long: `guardrails manages what is the tool's rather than any command group's. Each
 group installs its own pack, so a Space can opt into some and not others:
 
@@ -77,12 +77,19 @@ rather than one group's kinds:
                  (vet-schemas)
 
 'status' lists the Units any Trigger has marked, whichever group it belongs to.
+'status --by-rule' reports where each rule stands instead -- Created, Audited,
+Enforced or Disabled -- with its priority, the date it is due to be enforced,
+and how many Units it passes, warns on and blocks.
 
 'exception' excepts a resource from one rule of any group, removes an exception,
-and lists every resource excepted and why.`,
+and lists every resource excepted and why.
+
+'update' sets a rule's priority and the date it is due to be enforced, and
+enforces it once its warnings are worked down.`,
 	}
 	cmd.AddCommand(schemaPack.InstallCmd(cub.Preflight), guardrails.Pack{}.StatusCmd(cub.Preflight),
 		guardrails.ExceptionCmd(cub.Preflight, schemaPack, workload.Pack, scheduling.Pack, autoscale.Pack,
-			observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack))
+			observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack),
+		guardrails.UpdateCmd(cub.Preflight))
 	return cmd
 }
