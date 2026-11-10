@@ -505,7 +505,7 @@ own, rather than part of the pack of a group a Space opts into for other reasons
 | `validate`               | Resources match their schemas             | `vet-schemas`: the Kubernetes or CRD schema, including the KEDA ScaledObjects `convert-keda` writes |
 | `format`                 | YAML has no ambiguous syntax              | `vet-format`: anchors, empty values, repeated keys, yes/no booleans, old-style octals |
 | `validate-dupes`         | No duplicate keys in merged lists         | `vet-merge-keys`: two containers, env vars and the like with one name |
-| `vet-namespace-required` | Namespaced resources name their namespace | `vet-cel`: `metadata.namespace` on every namespaced kind     |
+| `vet-namespace-required` | Namespaced resources name their namespace | `vet-namespace`: `metadata.namespace` on every type ConfigHub does not know to be cluster-scoped |
 | `no-merge-conflicts`     | No unresolved merge conflicts             | `vet-no-merge-conflicts`: the Unit's outstanding conflicts   |
 | `no-link-findings`       | Links find everything they name           | `vet-no-link-findings`: what its Links' resolves could not do |
 | `vet-no-placeholders`    | No placeholders left to fill              | `vet-placeholders`, on Units released to a Target            |
