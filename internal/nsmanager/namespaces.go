@@ -11,41 +11,27 @@ import (
 
 // PlaceholderNamespace is the base-template placeholder value (set-namespace
 // replaces it at render). Resources still carrying it are unrendered bases that
-// vet-placeholders gates from deploying, so envelope and duplicate analysis skip
-// them.
+// vet-placeholders gates from deploying, so the namespace and duplicate analyses
+// skip them.
 const PlaceholderNamespace = "confighubplaceholder"
 
-// Envelope member identifiers — the policy bundle every occupied namespace
-// should carry.
-const (
-	MemberNamespaceObject = "namespace-object"
-	MemberPodSecurity     = "pod-security"
-)
-
-// NamespaceEnvelope is the per-namespace completeness verdict: which envelope
-// members are present, and which are missing.
-type NamespaceEnvelope struct {
-	Cluster            string   `json:"cluster"`
-	Namespace          string   `json:"namespace"`
-	HasNamespaceObject bool     `json:"hasNamespaceObject"`
-	PodSecurityEnforce string   `json:"podSecurityEnforce,omitempty"`
-	WorkloadCount      int      `json:"workloadCount"`
-	Missing            []string `json:"missing,omitempty"`
-	Complete           bool     `json:"complete"`
-	// SpaceID and UnitSlug identify the v1/Namespace Unit (when one exists), so a
-	// finding on this namespace can be annotated onto its Unit.
-	SpaceID  string `json:"spaceId,omitempty"`
-	UnitSlug string `json:"unitSlug,omitempty"`
+// NamespaceSummary is what one cluster's config says about one namespace: whether
+// a Namespace object declares it, the Pod Security Standard level that object
+// enforces, and how many workloads run in it.
+type NamespaceSummary struct {
+	Cluster            string `json:"cluster"`
+	Namespace          string `json:"namespace"`
+	HasNamespaceObject bool   `json:"hasNamespaceObject"`
+	PodSecurityEnforce string `json:"podSecurityEnforce,omitempty"`
+	WorkloadCount      int    `json:"workloadCount"`
 }
 
-// AnalyzeCluster computes the envelope verdict for every namespace in one
-// cluster. A namespace is analyzed if it has a Namespace object or any occupant
-// (workload, NetworkPolicy, or RBAC object). The placeholder namespace is
-// skipped, and so are the built-in namespaces (kube-system, default, ...): the
-// cluster creates and owns them, so they need no Namespace Unit and carry no
-// tenant's envelope.
-func AnalyzeCluster(c *ClusterNamespaces) []NamespaceEnvelope {
-	// Index by namespace name.
+// SummarizeNamespaces summarizes every namespace in one cluster that has a
+// Namespace object or a workload. The placeholder namespace is skipped, and so
+// are the built-in namespaces (kube-system, default, ...): the cluster creates
+// and owns them, so they need no Namespace Unit and no tenant's pod-security
+// level.
+func SummarizeNamespaces(c *ClusterNamespaces) []NamespaceSummary {
 	nsObjects := map[string]*NamespaceEntity{}
 	for _, n := range c.Namespaces {
 		nsObjects[n.Name] = n
@@ -55,8 +41,6 @@ func AnalyzeCluster(c *ClusterNamespaces) []NamespaceEnvelope {
 		workloads[w.Namespace]++
 	}
 
-	// The set of namespaces to analyze: every name that appears as an object or
-	// as the namespace of some occupant.
 	names := map[string]bool{}
 	add := func(ns string) {
 		if ns != "" && ns != PlaceholderNamespace && !k8skit.IsBuiltInNamespace(ns) {
@@ -70,10 +54,10 @@ func AnalyzeCluster(c *ClusterNamespaces) []NamespaceEnvelope {
 		add(w.Namespace)
 	}
 
-	out := make([]NamespaceEnvelope, 0, len(names))
+	out := make([]NamespaceSummary, 0, len(names))
 	for ns := range names {
 		obj, hasObj := nsObjects[ns]
-		e := NamespaceEnvelope{
+		e := NamespaceSummary{
 			Cluster:            c.Cluster,
 			Namespace:          ns,
 			HasNamespaceObject: hasObj,
@@ -81,35 +65,10 @@ func AnalyzeCluster(c *ClusterNamespaces) []NamespaceEnvelope {
 		}
 		if hasObj {
 			e.PodSecurityEnforce = obj.PodSecurityEnforce()
-			e.SpaceID = obj.Origin.SpaceID
-			e.UnitSlug = obj.Origin.UnitSlug
 		}
-		if !e.HasNamespaceObject {
-			e.Missing = append(e.Missing, MemberNamespaceObject)
-		}
-		if e.PodSecurityEnforce == "" {
-			e.Missing = append(e.Missing, MemberPodSecurity)
-		}
-		e.Complete = len(e.Missing) == 0
 		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Namespace < out[j].Namespace })
-	return out
-}
-
-// AnalyzeFleet computes envelope verdicts across every cluster, sorted by
-// (cluster, namespace).
-func AnalyzeFleet(clusters map[string]*ClusterNamespaces) []NamespaceEnvelope {
-	var out []NamespaceEnvelope
-	for _, c := range clusters {
-		out = append(out, AnalyzeCluster(c)...)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Cluster != out[j].Cluster {
-			return out[i].Cluster < out[j].Cluster
-		}
-		return out[i].Namespace < out[j].Namespace
-	})
 	return out
 }
 

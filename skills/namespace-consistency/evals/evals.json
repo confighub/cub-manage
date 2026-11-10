@@ -19,7 +19,7 @@
       "id": 3,
       "name": "routes-completeness-elsewhere",
       "prompt": "Does the payments namespace have a default-deny?",
-      "expected_output": "Recognizes that NetworkPolicy coverage is not this tool's subject at all: cub manage namespace no longer reports default-deny, so it routes to netpol-audit / the cub manage netpol tool rather than running cub manage namespace envelope.",
+      "expected_output": "Recognizes that NetworkPolicy coverage is not this tool's subject at all: cub manage namespace no longer reports default-deny, so it routes to netpol-audit / the cub manage netpol tool rather than running a cub manage namespace command.",
       "files": []
     }
   ]

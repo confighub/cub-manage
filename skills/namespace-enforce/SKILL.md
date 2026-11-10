@@ -1,25 +1,24 @@
 ---
 name: namespace-enforce
-description: 'Install, inspect, and feed the namespace-envelope guardrail pack in ConfigHub with the cub manage namespace CLI — making envelope findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our namespace standards", "warn on namespaces without pod-security", "flag namespaces missing the envelope", "set up namespace guardrails", "which Units have namespace warnings?", "annotate the incomplete namespaces so they get flagged". Installs Warn=true vet-celexpr Triggers in the namespace guardrail group (annotate-then-validate for envelope gaps); dry-run by default. Not for one-off checks (use namespace-findings) or fixing config (use namespace-backfill).'
+description: 'Install and inspect the namespace guardrail pack in ConfigHub with the cub manage namespace CLI — making Pod Security Standard findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our namespace standards", "warn on namespaces without pod-security", "warn on workloads that do not meet their namespace''s Pod Security level", "set up namespace guardrails", "which Units have namespace warnings?". Installs Warn=true Triggers in the namespace guardrail group; dry-run by default. Not for one-off checks (use namespace-findings) or fixing config (use namespace-backfill).'
 phase: act
-allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace findings *) Bash(cub manage namespace guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage namespace guardrails annotate *) Bash(cub manage guardrails exception list *)
+allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace findings *) Bash(cub manage namespace guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # namespace-enforce
 
-Make namespace-envelope findings **enforced**, not advisory. Installs a pack of validation policies (defined once in a policy Space, enforced in each Space that opts into the `namespace` group) and the annotate-then-validate loop that turns a set-aware envelope finding into a ValidationWarning.
+Make namespace Pod Security Standard findings **enforced**, not just reported. Installs a pack of validation policies, defined once in a policy Space and enforced in each Space that opts into the `namespace` group.
 
 ## Why this matters
 
-The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware envelope checks use **annotate-then-validate** — `guardrails annotate` writes a `namespace.confighub.com/envelope-coverage` annotation, naming what is missing, onto each incomplete namespace's Namespace Unit, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
+The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So each rule is a validating Trigger: a `vet-cel` expression over the Namespace, or `vet-pod-security-standard` over each workload. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
 
 ## The pack
 
 | Trigger | Checks |
 | --- | --- |
 | `namespace-has-pod-security` | a `v1/Namespace` must carry a `pod-security.kubernetes.io/enforce` label |
-| `namespace-pod-security-standard` | a workload must meet the Pod Security Standard level in its own `pod-security.kubernetes.io/enforce` label, which `cub manage namespace apply-envelope` copies from its namespace — so admission would not reject its pods. Unlabeled workloads are not checked; `cub manage namespace pod-security` counts them as UNLABELED. Runs `vet-pod-security-standard` with no level, so `install` refuses a server whose function still requires one |
-| `namespace-envelope-coverage` | warns while a `namespace.confighub.com/envelope-coverage` annotation is present |
+| `namespace-pod-security-standard` | a workload must meet the Pod Security Standard level in its own `pod-security.kubernetes.io/enforce` label, which `cub manage namespace pod-security set` copies from its namespace — so admission would not reject its pods. Unlabeled workloads are not checked; `cub manage namespace pod-security` counts them as UNLABELED. Runs `vet-pod-security-standard` with no level, so `install` refuses a server whose function still requires one |
 
 The **namespace-name invariant** (`metadata.namespace == normalizeName(Component)`) is enforced separately by a cluster-selected **mutating `set-namespace` Trigger** — active correction, the promotable option, wired outside this advisory pack.
 
@@ -28,7 +27,7 @@ The **namespace-name invariant** (`metadata.namespace == normalizeName(Component
 - "Enforce our namespace standards." / "set up namespace guardrails."
 - "Warn on namespaces without pod-security labels."
 - "Which Units have namespace warnings or gates?" → `cub manage guardrails status`.
-- "Annotate the incomplete namespaces so they're flagged." → `guardrails annotate`.
+- "Warn on workloads that do not meet their namespace's Pod Security level." → install the pack, then `cub manage namespace pod-security set` copies each namespace's level onto its workloads, which the `namespace-pod-security-standard` rule checks them against.
 
 ## Do not load for
 
@@ -52,16 +51,11 @@ The **namespace-name invariant** (`metadata.namespace == normalizeName(Component
    cub manage namespace guardrails install --where-space "Slug LIKE 'apptique-%'" --commit
    ```
    Spaces with their own Triggers, a custom `WhereTrigger`, or a `TriggerFilterID` are skipped (not clobbered) and reported; wire those deliberately (see **triggers-and-applygates**). After wiring, existing Units are checked on their next mutation.
-3. **Annotate** envelope findings so the finding Trigger flags them (dry-run by default):
-   ```bash
-   cub manage namespace guardrails annotate --commit --change-desc "Flag incomplete namespaces. User prompt: ..."
-   ```
-   Writes the finding annotation onto each incomplete namespace's Namespace Unit; the set-annotation mutation re-runs the Trigger, raising the warning. Re-run after fixing config.
-4. **Inspect** what's flagged:
+3. **Inspect** what's flagged:
    ```bash
    cub manage guardrails status -o table
    ```
-5. **Promote a rule to blocking** later (the manager never does this silently): `cub manage guardrails update <slug> --enforce --commit`.
+4. **Promote a rule to blocking** later (the manager never does this silently): `cub manage guardrails update <slug> --enforce --commit`.
 
 ## Exceptions
 
@@ -83,9 +77,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install/status/annotate` and read commands; `annotate` passes `--change-desc`. Not allowed: bypassing gates, `kubectl`, publishing a Release.
+Allowed: `guardrails install/status` and read commands. Not allowed: bypassing gates, `kubectl`, publishing a Release.
 
 ## References
 
-- `cub manage namespace guardrails install --help`, `... status --help`, `... annotate --help`.
+- `cub manage namespace guardrails install --help`, `cub manage guardrails status --help`.
 - Companion skills: **namespace-findings**, **namespace-backfill**, **triggers-and-applygates**.

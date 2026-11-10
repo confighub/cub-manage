@@ -24,7 +24,7 @@ func TestAnalyzeFindings(t *testing.T) {
 		// orders: workload + Namespace object without pod-security.
 		resFull("prod", "orders-prod", "orders", nsDoc("orders", nil)),
 		resFull("prod", "orders-prod", "orders", workloadDoc("Deployment", "api", "orders")),
-		// payments: complete envelope → no missing-* findings.
+		// payments: a Namespace object with pod-security → no missing-* findings.
 		resFull("prod", "payments-prod", "payments", nsDoc("payments", map[string]any{PodSecurityEnforceLabel: "baseline"})),
 		resFull("prod", "payments-prod", "payments", workloadDoc("Deployment", "web", "payments")),
 	}

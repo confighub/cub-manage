@@ -90,7 +90,7 @@ type NamespacePodSecurity struct {
 	// Unlabeled counts, when the namespace enforces a level, the workloads that do
 	// not carry that level in their own enforce label. vet-pod-security-standard
 	// checks a workload at its own label, so these are the ones it does not hold
-	// to the namespace's level; apply-envelope labels them.
+	// to the namespace's level; 'pod-security set' labels them.
 	Unlabeled int `json:"unlabeled,omitempty"`
 	// BlockedLevel is the level one step stricter than Achievable, which the
 	// Blockers fail; empty when Achievable is restricted.

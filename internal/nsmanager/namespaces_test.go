@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func findEnvelope(es []NamespaceEnvelope, ns string) *NamespaceEnvelope {
+func findSummary(es []NamespaceSummary, ns string) *NamespaceSummary {
 	for i := range es {
 		if es[i].Namespace == ns {
 			return &es[i]
@@ -17,54 +17,39 @@ func findEnvelope(es []NamespaceEnvelope, ns string) *NamespaceEnvelope {
 	return nil
 }
 
-func TestAnalyzeClusterCompleteness(t *testing.T) {
+func TestSummarizeNamespaces(t *testing.T) {
 	resources := []FleetResource{
-		// payments: complete envelope (Namespace object + pod-security).
+		// payments: a Namespace object with pod-security, and a workload.
 		res("c1", "c1", "ns", nsDoc("payments", map[string]any{PodSecurityEnforceLabel: "baseline"})),
 		res("c1", "c1", "web", workloadDoc("Deployment", "web", "payments")),
-		// orders: workload only — no Namespace object.
+		// orders: a workload only -- no Namespace object.
 		res("c1", "c1", "orders-web", workloadDoc("Deployment", "api", "orders")),
-		// shipping: Namespace object without pod-security.
+		// shipping: a Namespace object without pod-security.
 		res("c1", "c1", "shipping-ns", nsDoc("shipping", nil)),
 	}
 	clusters := BuildFleet(resources)
-	got := AnalyzeCluster(clusters["c1"])
+	got := SummarizeNamespaces(clusters["c1"])
 
-	pay := findEnvelope(got, "payments")
-	if pay == nil || !pay.Complete {
-		t.Fatalf("payments should be complete, got %+v", pay)
+	pay := findSummary(got, "payments")
+	if pay == nil || !pay.HasNamespaceObject || pay.PodSecurityEnforce != "baseline" || pay.WorkloadCount != 1 {
+		t.Fatalf("payments = %+v, want a Namespace object enforcing baseline, with 1 workload", pay)
 	}
-	if pay.WorkloadCount != 1 {
-		t.Errorf("payments workloadCount = %d, want 1", pay.WorkloadCount)
+	orders := findSummary(got, "orders")
+	if orders == nil || orders.HasNamespaceObject || orders.WorkloadCount != 1 {
+		t.Fatalf("orders = %+v, want 1 workload and no Namespace object", orders)
 	}
-
-	orders := findEnvelope(got, "orders")
-	if orders == nil || orders.Complete {
-		t.Fatalf("orders should be incomplete, got %+v", orders)
-	}
-	wantMissing := []string{MemberNamespaceObject, MemberPodSecurity}
-	if strings.Join(orders.Missing, ",") != strings.Join(wantMissing, ",") {
-		t.Errorf("orders.Missing = %v, want %v", orders.Missing, wantMissing)
-	}
-
-	ship := findEnvelope(got, "shipping")
-	if ship == nil || ship.Complete {
-		t.Fatalf("shipping should be incomplete, got %+v", ship)
-	}
-	if !ship.HasNamespaceObject {
-		t.Error("shipping should have a namespace object")
-	}
-	if ship.PodSecurityEnforce != "" {
-		t.Errorf("shipping podSecurityEnforce = %q, want empty", ship.PodSecurityEnforce)
+	ship := findSummary(got, "shipping")
+	if ship == nil || !ship.HasNamespaceObject || ship.PodSecurityEnforce != "" {
+		t.Fatalf("shipping = %+v, want a Namespace object with no pod-security label", ship)
 	}
 }
 
-func TestAnalyzeClusterSkipsPlaceholder(t *testing.T) {
+func TestSummarizeNamespacesSkipsPlaceholder(t *testing.T) {
 	clusters := BuildFleet([]FleetResource{
 		res("c1", "c1", "ph", nsDoc(PlaceholderNamespace, nil)),
 	})
-	got := AnalyzeCluster(clusters["c1"])
-	if findEnvelope(got, PlaceholderNamespace) != nil {
+	got := SummarizeNamespaces(clusters["c1"])
+	if findSummary(got, PlaceholderNamespace) != nil {
 		t.Errorf("placeholder namespace should be skipped, got %+v", got)
 	}
 }
@@ -72,13 +57,13 @@ func TestAnalyzeClusterSkipsPlaceholder(t *testing.T) {
 // The cluster creates and owns its built-in namespaces, so a workload in
 // kube-system needs no Namespace Unit, and a Unit declaring one is not asked
 // for a tenant's pod-security level.
-func TestAnalyzeClusterSkipsBuiltInNamespaces(t *testing.T) {
+func TestSummarizeNamespacesSkipsBuiltInNamespaces(t *testing.T) {
 	clusters := BuildFleet([]FleetResource{
 		res("c1", "c1", "dns", workloadDoc("Deployment", "coredns", "kube-system")),
 		res("c1", "c1", "csi", nsDoc("kube-system", nil)),
 		res("c1", "c1", "web", workloadDoc("Deployment", "web", "default")),
 	})
-	got := AnalyzeCluster(clusters["c1"])
+	got := SummarizeNamespaces(clusters["c1"])
 	if len(got) != 0 {
 		t.Errorf("built-in namespaces should be skipped, got %+v", got)
 	}

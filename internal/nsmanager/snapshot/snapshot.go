@@ -1,7 +1,7 @@
 // Copyright (C) ConfigHub, Inc.
 // SPDX-License-Identifier: MIT
 
-// Package snapshot loads the fleet-wide view of the Kubernetes config the namespace envelope covers and assembles it into the
+// Package snapshot loads the fleet-wide view of the Kubernetes config the namespace analysis reads and assembles it into the
 // nsmanager analysis model.
 //
 // Reading the fleet is cubapi.SnapshotLoader's job. What is tool-specific is which
@@ -26,7 +26,7 @@ type UnitMeta = cubapi.UnitMeta
 // cluster.
 const ClusterNone = cubapi.ClusterNone
 
-// Snapshot is a fleet-wide namespace-envelope view.
+// Snapshot is a fleet-wide view of namespaces and their workloads.
 type Snapshot struct {
 	// Clusters holds the analysis entities per cluster, excluding canonical
 	// (base/policy) definitions.
@@ -40,8 +40,8 @@ type Snapshot struct {
 	Filter string `json:"filter,omitempty"`
 }
 
-// loader names the resource types the envelope model needs: the namespace itself and
-// everything the envelope is meant to contain.
+// loader names the resource types the namespace model needs: the namespace itself and
+// the workloads that run in it.
 var loader = cubapi.SnapshotLoader[nsmanager.FleetResource]{
 	ResourceTypes: []string{
 		"v1/Namespace",

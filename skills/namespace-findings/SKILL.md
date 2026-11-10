@@ -1,6 +1,6 @@
 ---
 name: namespace-findings
-description: 'Run the ranked namespace-governance analyzer set over a ConfigHub fleet with the cub manage namespace CLI — envelope gaps (missing Namespace object / pod-security), duplicate namespaces colliding on a Target, and cross-variant name/pod-security inconsistency. Use for "what''s wrong with our namespaces?", "namespace governance findings", "any duplicate namespaces?", "show high-severity namespace issues", "audit namespace hygiene". Not for raw inventory (use namespace-audit) or a single component''s consistency detail (use namespace-consistency); read-only, ConfigHub-managed Units only.'
+description: 'Run the ranked namespace-governance analyzer set over a ConfigHub fleet with the cub manage namespace CLI — missing Namespace objects and pod-security labels, duplicate namespaces colliding on a Target, and cross-variant name/pod-security inconsistency. Use for "what''s wrong with our namespaces?", "namespace governance findings", "any duplicate namespaces?", "show high-severity namespace issues", "audit namespace hygiene". Not for raw inventory (use namespace-audit) or a single component''s consistency detail (use namespace-consistency); read-only, ConfigHub-managed Units only.'
 phase: verify
 allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace findings) Bash(cub manage namespace findings *)
 ---
@@ -32,7 +32,7 @@ Each finding is a property of the *whole set* of resources — "this namespace h
 
 ## Do not load for
 
-- Raw inventory or per-namespace envelope detail — use **namespace-audit**.
+- Raw inventory — use **namespace-audit**; a namespace's achievable Pod Security Standard level and what blocks it — use **namespace-pod-security**.
 - One component's cross-variant consistency detail (the variant list) — use **namespace-consistency**.
 - Live cluster state — `kubectl`.
 - Fixing what's found — the write skills.

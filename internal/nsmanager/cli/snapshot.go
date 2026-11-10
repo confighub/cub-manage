@@ -53,9 +53,9 @@ Clusters are ConfigHub Targets; Units whose Space has no release Target group
 under a single "None" cluster. Canonical base/policy Spaces are excluded from
 the inventory.
 
-Per-namespace envelope completeness ("which namespaces lack a Namespace object
-or pod-security labels?") is reported by the 'envelope' command; this is raw
-inventory only.`,
+Which namespaces lack a Namespace object, or collide on a cluster, is reported
+by 'findings', and which lack a pod-security level by 'pod-security'; this is
+raw inventory only.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cub.Preflight(cmd.Context())
@@ -101,7 +101,7 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 	}
 
 	// Tally Unit-level stats per cluster, restricted to clusters that carry
-	// envelope-relevant config (i.e. appear in snap.Clusters); this naturally
+	// namespace-relevant config (i.e. appear in snap.Clusters); this naturally
 	// excludes canonical Spaces.
 	for _, u := range snap.Units {
 		key := u.TargetSlug
