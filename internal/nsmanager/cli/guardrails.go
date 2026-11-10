@@ -18,6 +18,7 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/nsmanager"
 	"github.com/confighub/cub-manage/internal/nsmanager/snapshot"
@@ -28,23 +29,26 @@ import (
 // envelope-coverage rule (annotate-then-validate).
 const envelopeAnnotation = "namespace.confighub.com/envelope-coverage"
 
+const podSecurityEnforceLabel = "pod-security.kubernetes.io/enforce"
+
 // Guardrail CEL expressions, evaluated per resource (r aliases the resource).
-const (
+var (
 	// A Namespace must carry the pod-security enforce label.
-	celHasPodSecurity = "r.kind != 'Namespace' || (has(r.metadata.labels) && 'pod-security.kubernetes.io/enforce' in r.metadata.labels)"
+	celHasPodSecurity = celrule.Result(celrule.When(
+		"r.kind == 'Namespace' && !(has(r.metadata.labels) && '"+podSecurityEnforceLabel+"' in r.metadata.labels)",
+		"["+celrule.Failure(celrule.Lit(celrule.MapKeyPath("metadata.labels", podSecurityEnforceLabel)), celrule.None,
+			celrule.Lit("the Namespace has no "+podSecurityEnforceLabel+" label"))+"]"))
 	// Annotate-then-validate: warn while an envelope finding annotation is present.
-	// The null check is required: a resource written with a bare `annotations:` key
-	// has the key present with a null value, so has() is true but `in` against null
-	// raises "no such overload" and the rule reports a spurious failure.
-	celNoEnvelopeFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + envelopeAnnotation + "' in r.metadata.annotations)"
+	celNoEnvelopeFinding = celrule.AnnotationFinding(envelopeAnnotation,
+		"the namespace is missing members of its envelope, as guardrails annotate found")
 )
 
 var Pack = guardrails.Pack{
 	Group: "namespace",
 	Rules: []guardrails.Rule{
-		{Slug: "namespace-has-pod-security", Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace apply-envelope --namespace <ns>`.", Expression: celHasPodSecurity},
-		{Slug: "namespace-pod-security-standard", Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace apply-envelope` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.", Function: VetPodSecurityFunction},
-		{Slug: "namespace-envelope-coverage", Description: "Warns while a namespace.confighub.com/envelope-coverage annotation is present (set by `cub manage namespace guardrails annotate`). Fix: close the envelope gap, then re-run annotate.", Expression: celNoEnvelopeFinding},
+		{Slug: "namespace-has-pod-security", DisplayName: "Namespaces set a Pod Security level", Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace apply-envelope --namespace <ns>`.", Expression: celHasPodSecurity},
+		{Slug: "namespace-pod-security-standard", DisplayName: "Workloads meet their Pod Security level", Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace apply-envelope` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.", Function: VetPodSecurityFunction},
+		{Slug: "namespace-envelope-coverage", DisplayName: "Namespaces have their whole envelope", Description: "Warns while a namespace.confighub.com/envelope-coverage annotation is present (set by `cub manage namespace guardrails annotate`). Fix: close the envelope gap, then re-run annotate.", Expression: celNoEnvelopeFinding},
 	},
 }
 
