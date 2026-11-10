@@ -196,8 +196,8 @@ Applied — guardrail group "autoscale" in policy Space "common"
 
 `autoscale-not-pinned` (`vet-cel`) flags any HPA/ScaledObject with `min == max`.
 
-Schema validation is not autoscaling's: the tool-level `schema` group's
-`schema-valid` rule (`vet-schemas`) validates every mutation against the
+Schema validation is not autoscaling's: the tool-level `basic` group's
+`validate` rule (`vet-schemas`) validates every mutation against the
 Kubernetes/CRD schema catalog — the **post-convert check** for `convert-keda`,
 since `keda.sh` is in the catalog. Install it on its own with
 `cub manage guardrails install --commit`. A committed ScaledObject passes:

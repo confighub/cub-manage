@@ -50,31 +50,28 @@ var library = profiles.Library{
 
 func newProfileCmd() *cobra.Command { return library.Command() }
 
-// schemaPack is the tool-level guardrail group: rules about every resource
-// rather than any group's kinds, which a Space opts into on its own.
-var schemaPack = guardrails.Pack{
-	Group: "schema",
-	Rules: []guardrails.Rule{
-		{Slug: "schema-valid",
-			Description: "Warns when a resource fails Kubernetes or CRD schema validation, including the KEDA ScaledObjects `cub manage autoscale convert-keda` writes. Fix: correct the fields the warning names.",
-			Function:    "vet-schemas"},
-	},
-}
-
 func newGuardrailsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guardrails",
-		Short: "Install the tool-level guardrail group; report marked Units; manage exceptions and enforcement",
+		Short: "Install the tool-level basic guardrail group; report marked Units; manage exceptions and enforcement",
 		Long: `guardrails manages what is the tool's rather than any command group's. Each
 group installs its own pack, so a Space can opt into some and not others:
 
   cub manage <group> guardrails install
 
-'install' installs the tool-level schema group, whose rule is about every resource
-rather than one group's kinds:
+'install' installs the tool-level basic group, whose rules are about every
+resource or every Unit rather than one group's kinds:
 
-  schema-valid   a resource must pass Kubernetes or CRD schema validation
-                 (vet-schemas)
+  validate                 Resources match their schemas (vet-schemas)
+  format                   YAML has no ambiguous syntax (vet-format)
+  validate-dupes           No duplicate keys in merged lists (vet-merge-keys)
+  vet-namespace-required   Namespaced resources name their namespace (vet-cel)
+  no-merge-conflicts       No unresolved merge conflicts (vet-no-merge-conflicts)
+  no-link-findings         Links find everything they name (vet-no-link-findings)
+  vet-no-placeholders      No placeholders left to fill (vet-placeholders),
+                           on the Units released to a Target
+  vet-immutable            Immutable fields are unchanged (vet-immutable),
+                           on the Units released to a Target
 
 'status' lists the Units any Trigger has marked, whichever group it belongs to.
 'status --by-rule' reports where each rule stands instead -- Created, Audited,
@@ -87,8 +84,8 @@ and lists every resource excepted and why.
 'update' sets a rule's priority and the date it is due to be enforced, and
 enforces it once its warnings are worked down.`,
 	}
-	cmd.AddCommand(schemaPack.InstallCmd(cub.Preflight), guardrails.Pack{}.StatusCmd(cub.Preflight),
-		guardrails.ExceptionCmd(cub.Preflight, schemaPack, workload.Pack, scheduling.Pack, autoscale.Pack,
+	cmd.AddCommand(basicPack.InstallCmd(cub.Preflight), guardrails.Pack{}.StatusCmd(cub.Preflight),
+		guardrails.ExceptionCmd(cub.Preflight, basicPack, workload.Pack, scheduling.Pack, autoscale.Pack,
 			observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack),
 		guardrails.UpdateCmd(cub.Preflight))
 	return cmd
