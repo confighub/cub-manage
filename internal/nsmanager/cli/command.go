@@ -29,7 +29,8 @@ the same in every variant of a component -- across the fleet.
 It stops at the namespace. Whether a namespace's NetworkPolicies cover it is
 'cub manage netpol', and whether its RBAC is sound is 'cub manage rbac'. What
 keeps a namespace's workloads from a stricter Pod Security Standard is reported
-here ('pod-security') and fixed with 'cub manage workload harden'.
+here ('pod-security') and fixed with 'cub manage workload harden'; 'pod-security
+set' then labels the namespace with the level its workloads meet.
 
 ` + kit.DomainHelpFooter,
 	}
@@ -37,13 +38,11 @@ here ('pod-security') and fixed with 'cub manage workload harden'.
 	kit.AddReadCommands(cmd,
 		newSnapshotCmd(),
 		newListCmd(),
-		newEnvelopeCmd(),
 		newPodSecurityCmd(),
 		newConsistencyCmd(),
 		newFindingsCmd(),
 	)
 	kit.AddWriteCommands(cmd,
-		newApplyEnvelopeCmd(),
 		newBackfillCmd(),
 		newFleetEditCmd(),
 		newGuardrailsCmd(),

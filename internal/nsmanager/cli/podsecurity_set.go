@@ -21,7 +21,7 @@ import (
 	"github.com/confighub/cub-manage/internal/nsmanager"
 )
 
-type applyEnvelopeReport struct {
+type podSecuritySetReport struct {
 	Level      string                       `json:"level"`
 	Version    string                       `json:"version"`
 	Namespaces []nsmanager.PodSecurityApply `json:"namespaces"`
@@ -30,16 +30,16 @@ type applyEnvelopeReport struct {
 	Result write.Report               `json:"result"`
 }
 
-func newApplyEnvelopeCmd() *cobra.Command {
+func newPodSecuritySetCmd() *cobra.Command {
 	var output, clusterFilter, namespaceFilter, level, version string
 	var bases bool
 	var filter kit.FilterFlags
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
-		Use:   "apply-envelope",
+		Use:   "set",
 		Short: "Set each namespace's Pod Security Standard to the most restrictive level its workloads meet",
-		Long: `apply-envelope labels each selected namespace with the most restrictive Pod
-Security Standard level all of its workloads meet -- the ACHIEVABLE column of
+		Long: `set labels each selected namespace with the most restrictive Pod Security
+Standard level all of its workloads meet -- the ACHIEVABLE column of
 'cub manage namespace pod-security' -- or with --level, a level you choose:
 
   pod-security.kubernetes.io/enforce          the level
@@ -55,9 +55,9 @@ restarts.
 
 A typical loop: 'pod-security' to see each namespace's achievable level and
 what blocks the next one; 'cub manage workload harden' (or other fixes) on the
-blockers; 'pod-security' again to confirm; then apply-envelope.
+blockers; 'pod-security' again to confirm; then 'pod-security set'.
 
-apply-envelope never lowers a namespace's level. A Namespace that already
+set never lowers a namespace's level. A Namespace that already
 enforces the level, or a stricter one, keeps its labels, version included
 ("keep"), and its workloads get copies -- so where a stricter label is already
 in place, the guardrail flags the workloads it rejects. A namespace is left
@@ -129,9 +129,9 @@ Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 				results = append(results, res)
 			}
 
-			report := applyEnvelopeReport{
+			report := podSecuritySetReport{
 				Level: level, Version: version, Namespaces: plans, Edits: edits,
-				Result: write.Summarize("apply-envelope", "", dryRun, results...),
+				Result: write.Summarize("pod-security set", "", dryRun, results...),
 			}
 			if report.Level == "" {
 				report.Level = "achievable"
@@ -139,8 +139,8 @@ Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, report); done || err != nil {
 				return err
 			}
-			printApplyEnvelope(cmd, report)
-			return write.ReportMutations(cmd, "apply-envelope", "", dryRun, output, results...)
+			printPodSecuritySet(cmd, report)
+			return write.ReportMutations(cmd, "pod-security set", "", dryRun, output, results...)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -190,9 +190,9 @@ func unitsInScope(ctx context.Context, client *cubapi.Client, where string) (map
 	return ids, nil
 }
 
-// printApplyEnvelope prints the level each selected namespace gets, ahead of the
+// printPodSecuritySet prints the level each selected namespace gets, ahead of the
 // write report.
-func printApplyEnvelope(cmd *cobra.Command, r applyEnvelopeReport) {
+func printPodSecuritySet(cmd *cobra.Command, r podSecuritySetReport) {
 	out := cmd.OutOrStdout()
 	if len(r.Namespaces) == 0 {
 		kit.Fprintln(out, "No Namespace Units match the selection.")

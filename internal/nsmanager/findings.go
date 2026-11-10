@@ -30,9 +30,9 @@ type Finding struct {
 func AnalyzeFindings(clusters map[string]*ClusterNamespaces) []Finding {
 	var fs []Finding
 
-	// Per-namespace envelope completeness.
+	// Per namespace: a Namespace object, and its pod-security label.
 	for _, c := range clusters {
-		for _, e := range AnalyzeCluster(c) {
+		for _, e := range SummarizeNamespaces(c) {
 			if e.WorkloadCount > 0 && !e.HasNamespaceObject {
 				fs = append(fs, Finding{
 					Analyzer: "missing-namespace-object", Severity: api.ScoreMedium,

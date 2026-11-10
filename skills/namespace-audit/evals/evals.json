@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "name": "envelope-gaps",
-      "prompt": "Which namespaces in our fleet are missing a Namespace object or pod-security labels?",
-      "expected_output": "Runs `cub manage preflight` then `cub manage namespace envelope` (JSON or -o table, optionally --issues-only) and reports the namespaces whose DEFAULT-DENY / POD-SECURITY members are missing. Does not mutate, does not fall back to kubectl.",
+      "name": "gaps-route-to-findings",
+      "prompt": "Which namespaces in our fleet are missing a Namespace object?",
+      "expected_output": "Recognizes this is a governance finding rather than inventory, and routes to namespace-findings / `cub manage namespace findings --analyzer missing-namespace-object`. Does not mutate, does not fall back to kubectl.",
       "files": []
     },
     {
@@ -26,7 +26,7 @@
       "id": 4,
       "name": "routes-consistency-elsewhere",
       "prompt": "Is the apptique namespace the same across dev and prod?",
-      "expected_output": "Recognizes this is a cross-variant consistency question, not inventory, and routes to namespace-consistency / `cub manage namespace consistency` rather than answering with snapshot/envelope.",
+      "expected_output": "Recognizes this is a cross-variant consistency question, not inventory, and routes to namespace-consistency / `cub manage namespace consistency` rather than answering with snapshot/list.",
       "files": []
     }
   ]

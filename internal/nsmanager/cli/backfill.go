@@ -26,10 +26,10 @@ func newBackfillCmd() *cobra.Command {
 	var commit cliutil.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "backfill --space <dest> --from <base-space> --namespace <ns>",
-		Short: "Clone a base envelope's Units into an existing Space and re-home them with set-namespace",
-		Long: `backfill injects a namespace policy envelope into an existing Space — one that
+		Short: "Clone a base Space's namespace policy Units into an existing Space and re-home them with set-namespace",
+		Long: `backfill adds a namespace's policy Units to an existing Space -- one that
 already holds workloads (e.g. a Helm/Kustomize-ingested app Space) but none of
-the policy Units a base envelope Space defines. It clones every deployable Unit
+the policy Units a base Space defines, such as its Namespace. It clones every deployable Unit
 from the base Space (--from) into the destination Space (--space) via the
 BulkCreateUnits API, then runs set-namespace to re-home the clones to the target
 namespace (--namespace) — set-namespace also rewrites RBAC subject namespaces and
@@ -48,7 +48,7 @@ show what set-namespace would change in Units that do not exist yet.`,
 				return fmt.Errorf("--space, --from, and --namespace are all required")
 			}
 			changeDesc, dryRun, err := commit.Validate(
-				fmt.Sprintf("backfill envelope from %s into %s (namespace %s)", fromSpace, spaceSlug, namespace))
+				fmt.Sprintf("backfill namespace policy Units from %s into %s (namespace %s)", fromSpace, spaceSlug, namespace))
 			if err != nil {
 				return err
 			}
@@ -113,13 +113,13 @@ show what set-namespace would change in Units that do not exist yet.`,
 			sort.Strings(cloneSlugs)
 
 			if len(cloneSlugs) == 0 {
-				return fmt.Errorf("no envelope Units to backfill from base Space %q (nothing missing)", fromSpace)
+				return fmt.Errorf("no Units to backfill from base Space %q (nothing missing)", fromSpace)
 			}
 			srcWhere := fmt.Sprintf("SpaceID = '%s' AND Slug IN (%s)", base.Space.SpaceID.String(), inList(cloneSlugs))
 			destWhere := fmt.Sprintf("SpaceID = '%s'", dest.Space.SpaceID.String())
 			cloned, err := cub.BulkCloneUnits(cmd.Context(), client, srcWhere, destWhere, true, dryRun)
 			if err != nil {
-				return fmt.Errorf("clone envelope into %q: %w", spaceSlug, err)
+				return fmt.Errorf("clone Units into %q: %w", spaceSlug, err)
 			}
 			clones := &cubapi.Result{DryRun: dryRun}
 			var clonedSlugs []string
@@ -150,9 +150,9 @@ show what set-namespace would change in Units that do not exist yet.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	commit.Bind(cmd)
-	cmd.Flags().StringVar(&spaceSlug, "space", "", "destination Space to backfill the envelope into (required)")
-	cmd.Flags().StringVar(&fromSpace, "from", "", "base Space holding the envelope template to clone (required)")
-	cmd.Flags().StringVar(&namespace, "namespace", "", "namespace to re-home the cloned envelope to (required)")
+	cmd.Flags().StringVar(&spaceSlug, "space", "", "destination Space to backfill the Units into (required)")
+	cmd.Flags().StringVar(&fromSpace, "from", "", "base Space holding the Units to clone (required)")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "namespace to re-home the cloned Units to (required)")
 	return cmd
 }
 

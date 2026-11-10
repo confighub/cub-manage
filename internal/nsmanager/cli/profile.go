@@ -4,7 +4,7 @@
 package cli
 
 // The namespace profile library. Most of what this group fixes is computed per
-// namespace -- the level apply-envelope sets, the template backfill copies --
+// namespace -- the level 'pod-security set' sets, the template backfill copies --
 // but holding a component's namespace name to one value in every variant is the
 // same edit wherever it is made.
 

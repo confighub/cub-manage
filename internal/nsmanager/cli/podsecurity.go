@@ -57,7 +57,7 @@ func newPodSecurityCmd() *cobra.Command {
 	var bases bool
 	cmd := &cobra.Command{
 		Use:   "pod-security",
-		Short: "Which Pod Security Standard each namespace's workloads meet, and which workloads block a stricter one",
+		Short: "Which Pod Security Standard each namespace's workloads meet, and which workloads block a stricter one; 'set' applies it",
 		Long: `pod-security reports, for every namespace with workloads, the most restrictive
 Pod Security Standard level (privileged < baseline < restricted) that all of its
 workloads meet, and the workloads -- by Space, Unit and resource -- that keep it
@@ -78,11 +78,11 @@ pod-security.kubernetes.io/enforce label:
 UNLABELED counts, in a namespace that enforces a level, the workloads that do
 not carry it in their own pod-security.kubernetes.io/enforce label: the
 namespace-pod-security-standard guardrail checks each workload at its own label,
-so it does not check these. 'apply-envelope' labels them.
+so it does not check these. 'pod-security set' labels them.
 
 To raise a namespace's level: pod-security; fix what blocks the next level
 ('cub manage workload harden', for one); pod-security again to confirm; then
-'apply-envelope', which labels the namespace and its workloads with the level
+'pod-security set', which labels the namespace and its workloads with the level
 they meet.
 
 Filter with --cluster, --namespace and --status; --version checks against a
@@ -124,6 +124,7 @@ Kubernetes minor version of the standards instead of the latest.`,
 	cmd.Flags().StringVar(&statusFilter, "status", "", "filter by status: "+strings.Join(podSecurityStatuses, " | "))
 	cmd.Flags().StringVar(&version, "version", "", `Pod Security Standards version to check against: "latest" (the default) or a Kubernetes minor version such as "v1.30"`)
 	cmd.Flags().BoolVar(&bases, "bases", false, "check base Spaces, those with no release Target, instead of deployed ones, each Space on its own, listed under its slug as the cluster")
+	cmd.AddCommand(newPodSecuritySetCmd())
 	return cmd
 }
 
@@ -259,7 +260,7 @@ func printPodSecurityTable(cmd *cobra.Command, r podSecurityReport) {
 		unlabeled += p.Unlabeled
 	}
 	if unlabeled > 0 {
-		kit.Fprintln(w, fmt.Sprintf("\n%d workload(s) lack their namespace's %s label, so the namespace-pod-security-standard guardrail does not check them; `apply-envelope` labels them.",
+		kit.Fprintln(w, fmt.Sprintf("\n%d workload(s) lack their namespace's %s label, so the namespace-pod-security-standard guardrail does not check them; `pod-security set` labels them.",
 			unlabeled, nsmanager.PodSecurityEnforceLabel))
 	}
 	if len(r.Unchecked) > 0 {

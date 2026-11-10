@@ -1,8 +1,8 @@
 ---
 name: namespace-pod-security
-description: 'Report which Pod Security Standard (privileged / baseline / restricted) each namespace''s workloads meet in ConfigHub, and which Units and resources keep a namespace from a stricter level, using the cub manage namespace CLI. Use for "what pod security level can we enforce?", "which namespaces could be restricted?", "what is blocking baseline in monitoring?", "would enforcing restricted break anything?", "is any namespace''s enforce label rejecting its own pods?". Not for whether a Namespace has a pod-security label at all (use namespace-audit) or the ranked findings list (use namespace-findings); read-only, ConfigHub-managed Units only.'
+description: 'Report which Pod Security Standard (privileged / baseline / restricted) each namespace''s workloads meet in ConfigHub, and which Units and resources keep a namespace from a stricter level, using the cub manage namespace CLI. Use for "what pod security level can we enforce?", "which namespaces could be restricted?", "what is blocking baseline in monitoring?", "would enforcing restricted break anything?", "is any namespace''s enforce label rejecting its own pods?", "which namespaces have no pod-security label?". Not for the ranked findings list (use namespace-findings); read-only, ConfigHub-managed Units only.'
 phase: verify
-allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace pod-security) Bash(cub manage namespace pod-security *)
+allowed-tools: Bash(cub manage namespace --help) Bash(cub manage namespace * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage namespace pod-security) Bash(cub manage namespace pod-security --*)
 ---
 
 # namespace-pod-security
@@ -18,12 +18,12 @@ A namespace's enforce label decides which pods admission accepts. Raising it is 
 - "What pod security level could each namespace enforce?" → `pod-security -o table`.
 - "Which namespaces could be tightened?" → `pod-security --status tightenable`.
 - "Is any namespace enforcing a level its workloads fail?" → `pod-security --status violating`.
+- "Which namespaces have no pod-security label?" → `pod-security --status unlabeled`.
 - "What keeps monitoring from baseline?" → `pod-security --namespace monitoring`.
-- "Can namespace X move to restricted?" → `pod-security --namespace X`; fix the blockers (`cub manage workload harden`, for one), re-run to confirm, then hand off to `apply-envelope` (namespace-backfill), which applies the level and copies it onto the workloads.
+- "Can namespace X move to restricted?" → `pod-security --namespace X`; fix the blockers (`cub manage workload harden`, for one), re-run to confirm, then hand off to `pod-security set` (namespace-backfill), which applies the level and copies it onto the workloads.
 
 ## Do not load for
 
-- "Which namespaces have no pod-security label?" — envelope completeness (use **namespace-audit**).
 - "Give me the ranked list of everything wrong" — governance findings (use **namespace-findings**).
 - Live cluster state or admission warnings — `kubectl`.
 
@@ -56,7 +56,7 @@ Statuses:
 
 `blockers` lists only what stands between the achievable level and the next one: a privileged namespace's blockers are its baseline failures. `checks[].message` is worded as admission words its rejection and names the containers and fields to change.
 
-`unlabeled` counts, in a namespace that enforces a level, the workloads not carrying it in their own `pod-security.kubernetes.io/enforce` label. The `namespace-pod-security-standard` guardrail checks each workload at its own label, so it does not check these; `apply-envelope` labels them.
+`unlabeled` counts, in a namespace that enforces a level, the workloads not carrying it in their own `pod-security.kubernetes.io/enforce` label. The `namespace-pod-security-standard` guardrail checks each workload at its own label, so it does not check these; `pod-security set` labels them.
 
 Units the function could not check are listed under `unchecked` with the reason; a namespace counting `unchecked` workloads has an achievable level that is only an upper bound.
 
@@ -66,7 +66,7 @@ Same server-side scoping as the other commands: `--where` (Unit / `Space.*` / `T
 
 ## Stop conditions
 
-- The user wants to *raise* a label — report the achievable level and blockers, and hand off to `apply-envelope` (namespace-backfill); do not edit here.
+- The user wants to *raise* a label — report the achievable level and blockers, and hand off to `pod-security set` (namespace-backfill); do not edit here.
 - The user wants a blocker *fixed* — name the Unit, resource and failed checks; changing a workload's securityContext belongs to the workload's owner.
 
 ## Tool boundary

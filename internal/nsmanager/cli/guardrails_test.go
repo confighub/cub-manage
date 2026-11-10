@@ -18,11 +18,6 @@ func TestNamespaceRules(t *testing.T) {
 	labeled := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n  labels:\n    pod-security.kubernetes.io/enforce: baseline\n"
 	celruletest.Expect(t, celruletest.Eval(t, celHasPodSecurity, labeled))
 	celruletest.Expect(t, celruletest.Eval(t, celHasPodSecurity, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n"))
-
-	incomplete := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n  annotations:\n    namespace.confighub.com/envelope-coverage: missing-limitrange\n"
-	result = celruletest.Eval(t, celNoEnvelopeFinding, incomplete)
-	celruletest.Expect(t, result, "metadata.annotations.namespace~1confighub~1com/envelope-coverage")
-	celruletest.Expect(t, celruletest.Eval(t, celNoEnvelopeFinding, labeled))
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {

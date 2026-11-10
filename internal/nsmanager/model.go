@@ -3,20 +3,20 @@
 
 // Package nsmanager is the namespace analysis engine: it parses Namespaces and
 // the pod-bearing workloads that occupy them, drawn from ConfigHub Units, into a
-// typed domain model, then computes per-namespace envelope completeness and
-// fleet-wide consistency checks over it.
+// typed domain model, then summarizes each namespace and checks the fleet's
+// consistency over it.
 //
-// "Envelope" is what a namespace should carry to be governed at all: the
-// Namespace object itself and its pod-security labels. The manager reports which
-// namespaces are missing members, which names collide on one cluster, and which
-// components let a namespace name drift across variants — the fleet-wide read a
-// per-resource validator or a runtime tenancy controller (Capsule, HNC) cannot
-// do.
+// A namespace needs the Namespace object itself and a Pod Security Standard
+// level to be governed at all. The manager reports which namespaces lack a
+// Namespace object, which names collide on one cluster, which level each
+// namespace's workloads meet, and which components let a namespace name drift
+// across variants -- the fleet-wide read a per-resource validator or a runtime
+// tenancy controller (Capsule, HNC) cannot do.
 //
 // It deliberately stops there. Whether a namespace has the NetworkPolicy
 // coverage it needs is the netpol command group's subject, and whether its RBAC
 // is sound is the rbac group's; each reasons about its own resources far more
-// carefully than a completeness check here could.
+// carefully than a check here could.
 //
 // Parsing is lenient: malformed documents are skipped, never errored on — a bad
 // resource in one Unit must not take down fleet-wide analysis.
@@ -41,7 +41,7 @@ type ResourceOrigin struct {
 	ResourceName string `json:"resourceName"`
 	// Canonical is true for definitions in base/policy Spaces that aren't
 	// deployed anywhere — shown in the explorer but excluded from cluster
-	// analysis (envelope completeness, duplicates).
+	// analysis (namespace summaries, duplicates).
 	Canonical bool `json:"canonical,omitempty"`
 }
 
@@ -71,7 +71,8 @@ func (n *NamespaceEntity) PodSecurityEnforce() string {
 
 // WorkloadEntity is a parsed pod-bearing resource (Deployment, StatefulSet,
 // DaemonSet, ReplicaSet, Job, CronJob, or bare Pod) — used to identify which
-// namespaces are occupied and therefore want an envelope.
+// namespaces are occupied and therefore want a Namespace object and a Pod
+// Security Standard level.
 type WorkloadEntity struct {
 	Kind      string            `json:"kind"`
 	Name      string            `json:"name"`
@@ -87,7 +88,7 @@ func (w *WorkloadEntity) PodSecurityEnforce() string {
 	return w.Labels[PodSecurityEnforceLabel]
 }
 
-// ClusterNamespaces holds the envelope-relevant entities of one cluster.
+// ClusterNamespaces holds the namespace-relevant entities of one cluster.
 type ClusterNamespaces struct {
 	Cluster    string             `json:"cluster"`
 	Namespaces []*NamespaceEntity `json:"namespaces"`

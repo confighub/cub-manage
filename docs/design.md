@@ -238,7 +238,7 @@ to the rows with a problem: `--issues-only`.
 
 A write selects what it changes the way a read selects what it reports: the fleet scope and the
 display filters. A command that needs every resource to judge the ones it changes reads them all and
-applies the scope to what it writes: `namespace apply-envelope` judges a namespace by all of its
+applies the scope to what it writes: `namespace pod-security set` judges a namespace by all of its
 workloads, wherever their Units are, and labels the namespaces the scope selects.
 
 Output: `-o`/`--output` on every command — `json` (the default), `yaml`, `table`, `jq=<expr>`,
@@ -276,18 +276,18 @@ group decides and why.
 
 Reads Namespaces and the workloads in them. Analyses:
 
-- `envelope` — per namespace: is there a Namespace object, and does it carry a
-  `pod-security.kubernetes.io/enforce` label? Also flags two Namespace Units that resolve to the
-  same name on the same Target. Base Units still named `confighubplaceholder` are exempt; the
-  `vet-placeholders` function already keeps them from being released.
 - `pod-security` — per namespace, the most restrictive Pod Security Standard all its workloads
   meet, computed with the server's `vet-pod-security-standard` function (the same checks the
-  PodSecurity admission controller runs), compared with the namespace's label, and the workloads
-  that block the next level.
+  PodSecurity admission controller runs), compared with the namespace's label (`unlabeled` when it
+  has none), and the workloads that block the next level.
+- `findings` — ranked findings, among them a namespace whose workloads have no Namespace object,
+  and two Namespace Units that resolve to the same name on the same Target. Base Units still named
+  `confighubplaceholder` are exempt; the `vet-placeholders` function already keeps them from being
+  released.
 - `consistency` — per Component, over the Spaces that are its Variants: is the namespace name,
   and its Pod Security Standard, the same in every one?
 
-Fixes: `apply-envelope` sets a namespace's level to what its workloads meet (or `--level`), never
+Fixes: `pod-security set` sets a namespace's level to what its workloads meet (or `--level`), never
 lowering one, and labels the namespace's workloads with it so the `namespace-pod-security-standard`
 rule can hold each workload to its namespace's level before it reaches a cluster; labeling a
 workload's metadata does not restart it. `backfill` clones a base Space's Units into an existing
@@ -456,7 +456,7 @@ skills name the other group's command rather than duplicating it.
 
 | From            | Finding                                                         | To              | Fix                                            |
 | --------------- | --------------------------------------------------------------- | --------------- | ---------------------------------------------- |
-| `namespace`     | `pod-security`: workloads block the next level                  | `workload`      | `harden`, then `namespace pod-security` again, then `apply-envelope` |
+| `namespace`     | `pod-security`: workloads block the next level                  | `workload`      | `harden`, then `namespace pod-security` again, then `pod-security set` |
 | `namespace`     | `backfill` created NetworkPolicy and RBAC Units from a base     | `netpol`, `rbac`| `coverage`, `findings` judge what was copied   |
 | `autoscale`     | `pdb-blocks-min-scale`                                          | `workload`      | relax the PodDisruptionBudget; or `autoscale set-hpa` to raise the minimum |
 | `observability` | `inject-sidecar` added a container                              | `workload`      | `readiness` scores it; `set-resources --container`, `harden` |
@@ -469,8 +469,9 @@ A namespace's starting configuration — its Namespace object, a default-deny Ne
 baseline RBAC — is a template, and `namespace backfill` copies whatever a base Space holds into an
 existing one. Copying is the `namespace` group's job; it does not judge what it copies. The
 NetworkPolicies it brings are `netpol`'s to evaluate, and the RBAC is `rbac`'s. The `namespace`
-group's `envelope` check is deliberately limited to the namespace itself, so that it never reports a
-weaker version of an analysis another group does properly.
+group's checks are deliberately limited to the namespace itself -- its Namespace object, name and
+Pod Security Standard -- so that it never reports a weaker version of an analysis another group does
+properly.
 
 ### 7.4 PodDisruptionBudgets and autoscaling
 
