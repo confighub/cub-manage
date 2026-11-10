@@ -80,6 +80,9 @@ cub manage guardrails status -o table
 cub manage guardrails exception add shop-prod/batch --rule workload-pdb-coverage \
     --reason "singleton by design" --commit --change-desc "batch runs one replica"
 cub manage guardrails exception list -o table                # what is excepted, and why
+cub manage guardrails status --by-rule -o table              # each rule: Created, Audited, Enforced, Disabled
+cub manage guardrails update workload-runs-nonroot --priority High --enforced-by 2026-12-31 --commit
+cub manage guardrails update workload-runs-nonroot --enforce --commit   # warnings become errors
 ```
 
 ## Conventions
@@ -96,7 +99,7 @@ cub manage guardrails exception list -o table                # what is excepted,
   and never apply them to a cluster; releasing a change is a separate step. They never bypass a
   gate.
 - **Guardrails** install as warnings. Make one blocking with
-  `cub trigger update <slug> --space common --unwarn`.
+  `cub manage guardrails update <slug> --enforce --commit`.
 
 Run `cub manage <group> --help` for a group's commands.
 

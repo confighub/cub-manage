@@ -41,7 +41,7 @@ Each rule is a plain **per-resource `vet-cel`** check — a single Unit answers 
 ## The loop
 
 1. **Preview** (dry-run — the default): `cub manage scheduling guardrails install -o table` — prints the Triggers, which Spaces it would wire, which are already wired, and which it skips (with the reason).
-2. **Install** with `--commit`: `cub manage scheduling guardrails install --commit`. The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub trigger update <rule> --space common --unwarn`, e.g. `cub trigger update scheduling-min-domains-needs-donotschedule --space common --unwarn`.
+2. **Install** with `--commit`: `cub manage scheduling guardrails install --commit`. The Triggers are `Warn=true` (advisory). Promote one to blocking with `cub manage guardrails update <rule> --enforce --commit`, e.g. `cub manage guardrails update scheduling-min-domains-needs-donotschedule --enforce --commit`.
 3. **Check** what's flagged: `cub manage guardrails status -o table`.
 4. **Fix** flagged workloads via **scheduling-place** (placement) or **scheduling-spread** (`set-topology-spread`, which selects the workload's own Pods), then re-check.
 
@@ -60,7 +60,7 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 ## Stop conditions
 
 - A Space is skipped (its own Triggers, a custom WhereTrigger, or a TriggerFilterID) — report it; wiring it means adding the `scheduling` group to that Space's existing selection, not overwriting it.
-- The user wants a blocking gate now — install advisory first, verify, then `--unwarn`.
+- The user wants a blocking gate now — install advisory first, verify, then `cub manage guardrails update <rule> --enforce --commit`.
 
 ## Tool boundary
 
