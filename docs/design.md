@@ -119,7 +119,7 @@ change is always a deliberate one.
 
 **Guardrails.** Each group has a pack of validating Triggers, defined once in the `common` Space
 and selected by each Space, or Target, that opts into the group. Rules install as warnings and are
-made blocking with `cub trigger update <slug> --space common --unwarn`, which installing again
+made blocking with `cub manage guardrails update <slug> --enforce --commit`, which installing again
 leaves in place. A resource is excepted from one rule by the annotation
 `exceptions.guardrails.confighub.com/<rule>`, whose value says why. `cub manage guardrails
 exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
@@ -178,9 +178,10 @@ Tool commands are the ones that would otherwise be identical in every group:
 | `preflight`                             | Verify the ConfigHub session against the server                              |
 | `version`                               | Print the version                                                            |
 | `guardrails install`                    | Install the tool-level `schema` group, whose rule is about every resource    |
-| `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to      |
+| `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to; with `--by-rule`, each rule's stage (Created, Audited, Enforced, Disabled), priority, due date, and Units passed, warned and blocked |
 | `guardrails exception add` / `remove`   | Except one resource from one rule of any group, with the reason; remove it   |
 | `guardrails exception list`             | Every resource excepted from a rule, with its reason, and the count per rule |
+| `guardrails update`                     | Set a rule's priority and the date it is due to be enforced; enforce it, or return it to audit |
 | `profile install` / `list` / `apply`    | Seed every group's profiles into the shared library; list them; apply one    |
 
 A group's help lists its read commands, then its write commands, under those two headings.

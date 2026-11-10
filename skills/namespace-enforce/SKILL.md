@@ -61,7 +61,7 @@ The **namespace-name invariant** (`metadata.namespace == normalizeName(Component
    ```bash
    cub manage guardrails status -o table
    ```
-5. **Promote a rule to blocking** later (the manager never does this silently): `cub trigger update <slug> --space common --unwarn`.
+5. **Promote a rule to blocking** later (the manager never does this silently): `cub manage guardrails update <slug> --enforce --commit`.
 
 ## Exceptions
 

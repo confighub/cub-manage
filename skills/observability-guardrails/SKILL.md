@@ -37,7 +37,7 @@ ServiceMonitor coverage is a **cross-Unit** property (the ServiceMonitor and the
 ## The loop
 
 1. **Preview** (dry-run — the default): `cub manage observability guardrails install -o table`.
-2. **Install** with `--commit`. The Trigger is `Warn=true` (advisory); promote to blocking with `cub trigger update observability-servicemonitor-coverage --space common --unwarn`.
+2. **Install** with `--commit`. The Trigger is `Warn=true` (advisory); promote to blocking with `cub manage guardrails update observability-servicemonitor-coverage --enforce --commit`.
 3. **Feed the finding**: `cub manage observability guardrails annotate` (dry-run), then `--commit --change-desc`. Re-run after adding ServiceMonitors so the cached annotation stays fresh.
 4. **Check**: `cub manage guardrails status -o table`.
 5. **Fix** flagged Services via **observability-instrument**, then re-check.
@@ -57,7 +57,7 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 ## Stop conditions
 
 - A Space is skipped (its own Triggers, a custom WhereTrigger, or a TriggerFilterID) — report it; wiring it means adding the `observability` group to that Space's existing selection, not overwriting it.
-- The user wants a blocking gate now — install advisory first, verify, then `--unwarn`.
+- The user wants a blocking gate now — install advisory first, verify, then `cub manage guardrails update <rule> --enforce --commit`.
 
 ## Tool boundary
 

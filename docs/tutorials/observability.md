@@ -149,7 +149,7 @@ $ cub manage guardrails status -o table           # Units now carrying warnings
 ```
 
 Promote the rule to blocking later with
-`cub trigger update observability-servicemonitor-coverage --space common --unwarn`.
+`cub manage guardrails update observability-servicemonitor-coverage --enforce --commit`.
 
 ## Reference
 
