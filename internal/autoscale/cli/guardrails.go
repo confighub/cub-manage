@@ -55,10 +55,10 @@ policy Space and enforced in each Space that opts into the group:
 
 The rule is created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote it to blocking with:
-cub trigger update <slug> --space <policy-space> --unwarn
+cub manage guardrails update autoscale-not-pinned --enforce --commit
 
 Schema validation, which checks the ScaledObjects convert-keda writes, is the
-tool-level schema group: 'cub manage guardrails install'.
+validate rule of the tool-level basic group: 'cub manage guardrails install'.
 
 Except one resource from a rule with 'cub manage guardrails exception add';
 'cub manage guardrails exception list' shows what is excepted, and why.`,

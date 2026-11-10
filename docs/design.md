@@ -125,7 +125,7 @@ leaves in place. A resource is excepted from one rule by the annotation
 exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
 takes `--resource` whenever the Unit holds more than one, and `list` reads every exception back
 with its reason, and counts the exceptions to each rule, including the rules that have none.
-Rules about every resource rather than one group's kinds are the tool's: the `schema` group, installed with `cub manage guardrails install`.
+Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6).
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
 as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each attribute that failed
@@ -182,7 +182,7 @@ Tool commands are the ones that would otherwise be identical in every group:
 | --------------------------------------- | ---------------------------------------------------------------------------- |
 | `preflight`                             | Verify the ConfigHub session against the server                              |
 | `version`                               | Print the version                                                            |
-| `guardrails install`                    | Install the tool-level `schema` group, whose rule is about every resource    |
+| `guardrails install`                    | Install the tool-level `basic` group, whose rules are about every resource or Unit |
 | `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to; with `--by-rule`, each rule's stage (Created, Audited, Enforced, Disabled), priority, due date, and Units passed, warned and blocked |
 | `guardrails exception add` / `remove`   | Except one resource from one rule of any group, with the reason; remove it   |
 | `guardrails exception list`             | Every resource excepted from a rule, with its reason, and the count per rule |
@@ -495,11 +495,24 @@ one edit that adds one container.
 
 ### 7.6 Rules that are not any group's
 
-`schema-valid` runs `vet-schemas` on every resource; among other things, it validates the KEDA
-ScaledObjects `convert-keda` writes against their schema. Schema validation is not about any one
-group's kinds, so it is the tool-level `schema` group, installed with `cub manage guardrails install`
-and opted into on its own, rather than part of the pack of a group a Space opts into for other
-reasons.
+Some rules are about every resource, or every Unit, rather than any one group's kinds. They are
+the tool-level `basic` group, installed with `cub manage guardrails install` and opted into on its
+own, rather than part of the pack of a group a Space opts into for other reasons:
+
+| Rule                     | Display name                              | Checks                                                       |
+| ------------------------ | ----------------------------------------- | ------------------------------------------------------------ |
+| `validate`               | Resources match their schemas             | `vet-schemas`: the Kubernetes or CRD schema, including the KEDA ScaledObjects `convert-keda` writes |
+| `format`                 | YAML has no ambiguous syntax              | `vet-format`: anchors, empty values, repeated keys, yes/no booleans, old-style octals |
+| `validate-dupes`         | No duplicate keys in merged lists         | `vet-merge-keys`: two containers, env vars and the like with one name |
+| `vet-namespace-required` | Namespaced resources name their namespace | `vet-cel`: `metadata.namespace` on every namespaced kind     |
+| `no-merge-conflicts`     | No unresolved merge conflicts             | `vet-no-merge-conflicts`: the Unit's outstanding conflicts   |
+| `no-link-findings`       | Links find everything they name           | `vet-no-link-findings`: what its Links' resolves could not do |
+| `vet-no-placeholders`    | No placeholders left to fill              | `vet-placeholders`, on Units released to a Target            |
+| `vet-immutable`          | Immutable fields are unchanged            | `vet-immutable`, on Units released to a Target               |
+
+The slugs are those of the Triggers these rules were first written as, by hand, so installing the
+group where those Triggers exist updates them in place, keeping whether each warns or blocks,
+rather than adding a second copy.
 
 ### 7.7 Gaps between groups
 

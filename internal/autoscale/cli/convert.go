@@ -38,8 +38,8 @@ Dry-run by default (shows what the conversion would change); --commit
 operator installed in the target cluster.
 
 To schema-validate the generated ScaledObject automatically, install the
-tool-level schema group ('cub manage guardrails install --commit'): its
-schema-valid rule runs vet-schemas on every change, and the KEDA schemas are in
+tool-level basic group ('cub manage guardrails install --commit'): its
+validate rule runs vet-schemas on every change, and the KEDA schemas are in
 its catalog.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
