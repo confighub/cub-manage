@@ -15,6 +15,7 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 )
 
@@ -22,14 +23,19 @@ import (
 // it can't actually scale). An HPA's maxReplicas is required and minReplicas
 // defaults to 1; a ScaledObject's bounds are both optional, so an absent bound
 // is treated as unpinned.
-const celAutoscalerNotPinned = "!(r.kind in ['HorizontalPodAutoscaler', 'ScaledObject'])" +
-	" || (r.kind == 'HorizontalPodAutoscaler' && (!has(r.spec.minReplicas) || r.spec.minReplicas < r.spec.maxReplicas))" +
-	" || (r.kind == 'ScaledObject' && (!has(r.spec.minReplicaCount) || !has(r.spec.maxReplicaCount) || r.spec.minReplicaCount < r.spec.maxReplicaCount))"
+var celAutoscalerNotPinned = celrule.Result(
+	celrule.When("r.kind == 'HorizontalPodAutoscaler' && has(r.spec.minReplicas) && r.spec.minReplicas >= r.spec.maxReplicas",
+		"["+celrule.Failure(celrule.Lit("spec.minReplicas"), celrule.Some("r.spec.minReplicas"),
+			"'minReplicas ' + string(r.spec.minReplicas) + ' leaves no room below maxReplicas ' + string(r.spec.maxReplicas)")+"]") +
+		" + " +
+		celrule.When("r.kind == 'ScaledObject' && has(r.spec.minReplicaCount) && has(r.spec.maxReplicaCount) && r.spec.minReplicaCount >= r.spec.maxReplicaCount",
+			"["+celrule.Failure(celrule.Lit("spec.minReplicaCount"), celrule.Some("r.spec.minReplicaCount"),
+				"'minReplicaCount ' + string(r.spec.minReplicaCount) + ' leaves no room below maxReplicaCount ' + string(r.spec.maxReplicaCount)")+"]"))
 
 var Pack = guardrails.Pack{
 	Group: "autoscale",
 	Rules: []guardrails.Rule{
-		{Slug: "autoscale-not-pinned",
+		{Slug: "autoscale-not-pinned", DisplayName: "Autoscalers can scale",
 			Description: "Warns on an HPA/ScaledObject with min == max (it can't actually scale). Fix: `cub manage autoscale set-hpa --min <lower> --max <higher>` or a profile.",
 			Expression:  celAutoscalerNotPinned},
 	},

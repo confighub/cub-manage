@@ -16,6 +16,7 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/observability"
 	"github.com/confighub/cub-manage/internal/observability/snapshot"
@@ -26,15 +27,13 @@ import (
 // coverage is a cross-Unit property a per-Unit CEL check cannot compute).
 const coverageAnnotation = "observability.confighub.com/servicemonitor-coverage"
 
-// The null check is required: a resource written with a bare `annotations:` key has
-// the key present with a null value, so has() is true but `in` against null raises
-// "no such overload" and the rule reports a spurious failure.
-const celNoCoverageFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + coverageAnnotation + "' in r.metadata.annotations)"
+var celNoCoverageFinding = celrule.AnnotationFinding(coverageAnnotation,
+	"no ServiceMonitor scrapes this metrics Service, as guardrails annotate found")
 
 var Pack = guardrails.Pack{
 	Group: "observability",
 	Rules: []guardrails.Rule{
-		{Slug: "observability-servicemonitor-coverage",
+		{Slug: "observability-servicemonitor-coverage", DisplayName: "Metrics Services have a ServiceMonitor",
 			Description: "Warns while an observability.confighub.com/servicemonitor-coverage annotation is present (set by `cub manage observability guardrails annotate`) — a metrics Service with no ServiceMonitor. Fix: `cub manage observability ensure-servicemonitor`, then re-run annotate.",
 			Expression:  celNoCoverageFinding},
 	},

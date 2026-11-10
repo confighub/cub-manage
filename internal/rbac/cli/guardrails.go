@@ -15,22 +15,41 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 )
 
 // Guardrail CEL expressions, evaluated per resource (r aliases the resource).
-const (
-	celNoWildcards    = "!(r.kind in ['Role', 'ClusterRole']) || !has(r.rules) || !r.rules.exists(rule, (has(rule.verbs) && rule.verbs.exists(v, v == '*')) || (has(rule.resources) && rule.resources.exists(x, x == '*')) || (has(rule.apiGroups) && rule.apiGroups.exists(g, g == '*')))"
-	celNoEscalation   = "!(r.kind in ['Role', 'ClusterRole']) || !has(r.rules) || !r.rules.exists(rule, has(rule.verbs) && rule.verbs.exists(v, v in ['escalate', 'bind', 'impersonate']))"
-	celNoClusterAdmin = "r.kind != 'ClusterRoleBinding' || r.roleRef.name != 'cluster-admin'"
+
+const roleWithRules = "r.kind in ['Role', 'ClusterRole'] && has(r.rules)"
+
+// ruleFailures fails the field of each rule of a Role whose values include one
+// of bad, a CEL list, with detail.
+func ruleFailures(field, bad, detail string) string {
+	return "lists.range(size(r.rules)).filter(i, has(r.rules[i]." + field + ") && r.rules[i]." + field + ".exists(v, v in " + bad + "))" +
+		".map(i, " + celrule.Failure(celrule.Indexed("rules", "i", field), celrule.Some("r.rules[i]."+field), detail) + ")"
+}
+
+var (
+	// Each wildcard is reported at its field, so a rule with two is two failures.
+	celNoWildcards = celrule.Result(celrule.When(roleWithRules,
+		ruleFailures("verbs", "['*']", "'rule ' + string(i) + ' allows every verb'")+" + "+
+			ruleFailures("resources", "['*']", "'rule ' + string(i) + ' covers every resource'")+" + "+
+			ruleFailures("apiGroups", "['*']", "'rule ' + string(i) + ' covers every API group'")))
+
+	celNoEscalation = celrule.Result(celrule.When(roleWithRules,
+		ruleFailures("verbs", "['escalate', 'bind', 'impersonate']", "'rule ' + string(i) + ' grants escalate, bind or impersonate'")))
+
+	celNoClusterAdmin = celrule.Result(celrule.When("r.kind == 'ClusterRoleBinding' && r.roleRef.name == 'cluster-admin'",
+		"["+celrule.Failure(celrule.Lit("roleRef.name"), celrule.Some("r.roleRef.name"), celrule.Lit("the binding grants cluster-admin"))+"]"))
 )
 
 var Pack = guardrails.Pack{
 	Group: "rbac",
 	Rules: []guardrails.Rule{
-		{Slug: "rbac-no-wildcards", Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.", Expression: celNoWildcards},
-		{Slug: "rbac-no-privilege-escalation", Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.", Expression: celNoEscalation},
-		{Slug: "rbac-no-cluster-admin-binding", Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.", Expression: celNoClusterAdmin},
+		{Slug: "rbac-no-wildcards", DisplayName: "No wildcards in RBAC roles", Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.", Expression: celNoWildcards},
+		{Slug: "rbac-no-privilege-escalation", DisplayName: "No privilege escalation in RBAC roles", Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.", Expression: celNoEscalation},
+		{Slug: "rbac-no-cluster-admin-binding", DisplayName: "No bindings to cluster-admin", Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.", Expression: celNoClusterAdmin},
 	},
 }
 

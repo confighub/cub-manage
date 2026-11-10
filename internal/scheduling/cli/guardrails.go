@@ -15,6 +15,7 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 )
 
@@ -22,39 +23,55 @@ const controllerKinds = "['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet'
 
 // celTolerationNeedsPlacement passes unless a controller has tolerations but
 // neither a non-empty nodeSelector nor a required node affinity (i.e. it tolerates
-// a taint but doesn't actually pin where it lands).
-const celTolerationNeedsPlacement = "!(r.kind in " + controllerKinds + ")" +
-	" || !has(r.spec.template.spec.tolerations)" +
-	" || (has(r.spec.template.spec.nodeSelector) && size(r.spec.template.spec.nodeSelector) > 0)" +
-	" || (has(r.spec.template.spec.affinity) && has(r.spec.template.spec.affinity.nodeAffinity) && has(r.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution))"
+// a taint but doesn't actually pin where it lands). It fails at the tolerations.
+var celTolerationNeedsPlacement = celrule.Result(celrule.When("r.kind in "+controllerKinds+
+	" && has(r.spec.template.spec.tolerations)"+
+	" && !(has(r.spec.template.spec.nodeSelector) && size(r.spec.template.spec.nodeSelector) > 0)"+
+	" && !(has(r.spec.template.spec.affinity) && has(r.spec.template.spec.affinity.nodeAffinity) && has(r.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution))",
+	"["+celrule.Failure(celrule.Lit("spec.template.spec.tolerations"), celrule.Some("r.spec.template.spec.tolerations"),
+		celrule.Lit("the pods tolerate a taint but have no nodeSelector or required node affinity, so they can land on any node"))+"]"))
+
+// spreadConstraints is a controller's topology spread constraints, and
+// spreadFailures fails each of them for which fails, a condition on the
+// constraint c, holds, at field, with value and detail. i indexes the
+// constraint; c is bound to it as the element of a one-element list.
+const spreadConstraints = "r.spec.template.spec.topologySpreadConstraints"
+
+func spreadFailures(fails, field, value, detail string) string {
+	return celrule.When("r.kind in "+controllerKinds+" && has("+spreadConstraints+")",
+		"lists.range(size("+spreadConstraints+")).filter(i, ["+spreadConstraints+"[i]].all(c, "+fails+")).map(i, "+
+			celrule.Failure(celrule.Indexed("spec.template.spec.topologySpreadConstraints", "i", field), value, detail)+")")
+}
 
 // celSpreadSelectsOwnPods passes unless a controller has a topology spread
 // constraint with no labelSelector, or whose matchLabels its own pod template
 // does not carry: its Pods then do not count toward the skew. (matchExpressions
 // are not evaluated; the findings analyzer checks them.)
-const celSpreadSelectsOwnPods = "!(r.kind in " + controllerKinds + ")" +
-	" || !has(r.spec.template.spec.topologySpreadConstraints)" +
-	" || r.spec.template.spec.topologySpreadConstraints.all(c, has(c.labelSelector)" +
-	" && (!has(c.labelSelector.matchLabels) || (has(r.spec.template.metadata.labels)" +
-	" && c.labelSelector.matchLabels.all(k, k in r.spec.template.metadata.labels && r.spec.template.metadata.labels[k] == c.labelSelector.matchLabels[k]))))"
+var celSpreadSelectsOwnPods = celrule.Result(spreadFailures(
+	"!(has(c.labelSelector)"+
+		" && (!has(c.labelSelector.matchLabels) || (has(r.spec.template.metadata.labels)"+
+		" && c.labelSelector.matchLabels.all(k, k in r.spec.template.metadata.labels && r.spec.template.metadata.labels[k] == c.labelSelector.matchLabels[k]))))",
+	"labelSelector", spreadConstraints+"[i].?labelSelector",
+	"'topology spread constraint ' + string(i) + ' does not select the pods of this workload, so they do not count toward its skew'"))
 
 // celMinDomainsNeedsDoNotSchedule passes unless a controller's spread constraint
 // sets minDomains with a whenUnsatisfiable other than DoNotSchedule (its
 // default), which the API server rejects.
-const celMinDomainsNeedsDoNotSchedule = "!(r.kind in " + controllerKinds + ")" +
-	" || !has(r.spec.template.spec.topologySpreadConstraints)" +
-	" || r.spec.template.spec.topologySpreadConstraints.all(c, !has(c.minDomains) || !has(c.whenUnsatisfiable) || c.whenUnsatisfiable == 'DoNotSchedule')"
+var celMinDomainsNeedsDoNotSchedule = celrule.Result(spreadFailures(
+	"has(c.minDomains) && has(c.whenUnsatisfiable) && c.whenUnsatisfiable != 'DoNotSchedule'",
+	"whenUnsatisfiable", celrule.Some(spreadConstraints+"[i].whenUnsatisfiable"),
+	"'topology spread constraint ' + string(i) + ' sets minDomains with whenUnsatisfiable ' + "+spreadConstraints+"[i].whenUnsatisfiable + ', which the API server rejects'"))
 
 var Pack = guardrails.Pack{
 	Group: "scheduling",
 	Rules: []guardrails.Rule{
-		{Slug: "scheduling-toleration-needs-placement",
+		{Slug: "scheduling-toleration-needs-placement", DisplayName: "Workloads that tolerate a taint choose their nodes",
 			Description: "Warns on a controller that tolerates a taint but has no nodeSelector or required node affinity (may schedule onto general nodes). Fix: `cub manage scheduling set-node-selector` / `set-node-affinity`, or a placement profile.",
 			Expression:  celTolerationNeedsPlacement},
-		{Slug: "scheduling-spread-selects-own-pods",
+		{Slug: "scheduling-spread-selects-own-pods", DisplayName: "Topology spread selects the workload's own Pods",
 			Description: "Warns on a controller whose topology spread constraint has no labelSelector, or one its own pod template's labels do not match, so its Pods never count toward the skew. Fix: `cub manage scheduling set-topology-spread`, which selects the workload's own Pods.",
 			Expression:  celSpreadSelectsOwnPods},
-		{Slug: "scheduling-min-domains-needs-donotschedule",
+		{Slug: "scheduling-min-domains-needs-donotschedule", DisplayName: "minDomains comes with DoNotSchedule",
 			Description: "Warns on a controller whose topology spread constraint sets minDomains without whenUnsatisfiable DoNotSchedule, which the API server rejects. Fix: `cub manage scheduling set-topology-spread --when-unsatisfiable DoNotSchedule --min-domains N`, or drop minDomains.",
 			Expression:  celMinDomainsNeedsDoNotSchedule},
 	},

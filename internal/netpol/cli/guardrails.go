@@ -18,6 +18,7 @@ import (
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/guardrails"
 
+	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/netpol/snapshot"
 )
@@ -28,34 +29,54 @@ import (
 const coverageAnnotation = "netpol.confighub.com/ingress-coverage"
 
 // Guardrail CEL expressions, evaluated per resource (r aliases the resource).
-const (
-	// Every ingress rule must name its sources — an empty `from` admits all.
-	celNoAllowAllIngress = "r.kind != 'NetworkPolicy' || !has(r.spec.ingress) || r.spec.ingress.all(rule, has(rule.from) && size(rule.from) > 0)"
-	// No egress rule may permit the whole internet via 0.0.0.0/0.
-	celNoWideCidrEgress = "r.kind != 'NetworkPolicy' || !has(r.spec.egress) || r.spec.egress.all(rule, !has(rule.to) || rule.to.all(peer, !has(peer.ipBlock) || peer.ipBlock.cidr != '0.0.0.0/0'))"
-	// Annotate-then-validate: warn while a coverage annotation is present. The
-	// null check is required: a resource written with a bare `annotations:` key
-	// has the key present with a null value, so has() is true but `in` against
-	// null raises "no such overload" and the rule reports a spurious failure.
-	celNoCoverageFinding = "!has(r.metadata.annotations) || r.metadata.annotations == null || !('" + coverageAnnotation + "' in r.metadata.annotations)"
-)
 
-// celNoMetadataEgress fails an egress ipBlock whose CIDR contains the cloud
-// metadata IP unless an except names it. The CIDRs are listed rather than
-// computed, since CEL has no CIDR arithmetic; metadataExcepts are the excepts
-// that cover the IP, so an except as wide as the block it is in counts.
-var celNoMetadataEgress = fmt.Sprintf("r.kind != 'NetworkPolicy' || !has(r.spec.egress) || r.spec.egress.all(rule, !has(rule.to) || "+
-	"rule.to.all(peer, !has(peer.ipBlock) || !(peer.ipBlock.cidr in [%s]) || "+
-	"(has(peer.ipBlock.except) && peer.ipBlock.except.exists(e, e in [%s, '%s/32']))))",
-	metadataCIDRs(), metadataCIDRs(), metadataIP)
+// egressPeerFailures fails each peer of each egress rule of a NetworkPolicy whose
+// ipBlock does not pass ok, a condition on peer, at field of the peer, with
+// value and detail. i and j index the rule and the peer.
+func egressPeerFailures(ok, field, value, detail string) string {
+	egress := "r.spec.egress"
+	return celrule.When("r.kind == 'NetworkPolicy' && has("+egress+")",
+		"lists.range(size("+egress+")).filter(i, has("+egress+"[i].to)).map(i, "+
+			"lists.range(size("+egress+"[i].to)).filter(j, has("+egress+"[i].to[j].ipBlock) && !("+ok+")).map(j, "+
+			celrule.Failure("'spec.egress.' + string(i) + '.to.' + string(j) + '."+field+"'", value, detail)+")).flatten()")
+}
+
+// peer is the egress peer egressPeerFailures's conditions read.
+const peer = "r.spec.egress[i].to[j]"
+
+var (
+	// Every ingress rule must name its sources — an empty `from` admits all.
+	celNoAllowAllIngress = celrule.Result(celrule.When("r.kind == 'NetworkPolicy' && has(r.spec.ingress)",
+		"lists.range(size(r.spec.ingress)).filter(i, !(has(r.spec.ingress[i].from) && size(r.spec.ingress[i].from) > 0)).map(i, "+
+			celrule.Failure(celrule.Indexed("spec.ingress", "i", "from"), "r.spec.ingress[i].?from",
+				"'ingress rule ' + string(i) + ' names no sources, so it admits all of them'")+")"))
+
+	// No egress rule may permit the whole internet via 0.0.0.0/0.
+	celNoWideCidrEgress = celrule.Result(egressPeerFailures(peer+".ipBlock.cidr != '0.0.0.0/0'",
+		"ipBlock.cidr", celrule.Some(peer+".ipBlock.cidr"), "'egress rule ' + string(i) + ' allows the whole internet'"))
+
+	// celNoMetadataEgress fails an egress ipBlock whose CIDR contains the cloud
+	// metadata IP unless an except names it. The CIDRs are listed rather than
+	// computed, since CEL has no CIDR arithmetic; the excepts listed are those
+	// that cover the IP, so an except as wide as the block it is in counts.
+	celNoMetadataEgress = celrule.Result(egressPeerFailures(
+		fmt.Sprintf("!(%[1]s.ipBlock.cidr in [%[2]s]) || (has(%[1]s.ipBlock.except) && %[1]s.ipBlock.except.exists(e, e in [%[2]s, '%[3]s/32']))",
+			peer, metadataCIDRs(), metadataIP),
+		"ipBlock.except", peer+".ipBlock.?except",
+		"'egress rule ' + string(i) + ' reaches the cloud metadata IP through ' + "+peer+".ipBlock.cidr + ' without excepting it'"))
+
+	// Annotate-then-validate: warn while a coverage annotation is present.
+	celNoCoverageFinding = celrule.AnnotationFinding(coverageAnnotation,
+		"no ingress NetworkPolicy selects this workload, as guardrails annotate found")
+)
 
 var Pack = guardrails.Pack{
 	Group: "netpol",
 	Rules: []guardrails.Rule{
-		{Slug: "netpol-no-allow-all-ingress", Description: "Warns on a NetworkPolicy ingress rule with an empty `from` (admits all sources). Fix: enumerate the allowed sources.", Expression: celNoAllowAllIngress},
-		{Slug: "netpol-no-wide-cidr-egress", Description: "Warns on an egress rule permitting 0.0.0.0/0. Fix: restrict the CIDR, or except the cloud-metadata IP with the netpol-except-metadata profile.", Expression: celNoWideCidrEgress},
-		{Slug: "netpol-no-metadata-egress", Description: "Warns on an egress ipBlock that reaches the cloud metadata IP 169.254.169.254 without excepting it. Fix: the netpol-except-metadata profile.", Expression: celNoMetadataEgress},
-		{Slug: "netpol-ingress-coverage", Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.", Expression: celNoCoverageFinding},
+		{Slug: "netpol-no-allow-all-ingress", DisplayName: "Ingress rules name their sources", Description: "Warns on a NetworkPolicy ingress rule with an empty `from` (admits all sources). Fix: enumerate the allowed sources.", Expression: celNoAllowAllIngress},
+		{Slug: "netpol-no-wide-cidr-egress", DisplayName: "No egress to the whole internet", Description: "Warns on an egress rule permitting 0.0.0.0/0. Fix: restrict the CIDR, or except the cloud-metadata IP with the netpol-except-metadata profile.", Expression: celNoWideCidrEgress},
+		{Slug: "netpol-no-metadata-egress", DisplayName: "No egress to the cloud metadata IP", Description: "Warns on an egress ipBlock that reaches the cloud metadata IP 169.254.169.254 without excepting it. Fix: the netpol-except-metadata profile.", Expression: celNoMetadataEgress},
+		{Slug: "netpol-ingress-coverage", DisplayName: "Workloads have an ingress NetworkPolicy", Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.", Expression: celNoCoverageFinding},
 	},
 }
 

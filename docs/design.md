@@ -128,7 +128,11 @@ with its reason, and counts the exceptions to each rule, including the rules tha
 Rules about every resource rather than one group's kinds are the tool's: the `schema` group, installed with `cub manage guardrails install`.
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
-as `vet-images`. A rule about a set cannot be expressed that way: a Trigger sees one Unit, so it
+as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each attribute that failed
+-- its path and value -- with a sentence saying why, so a reader can point at the field to fix or
+the resource to except; `internal/celrule` builds those expressions. Each rule also has a
+DisplayName, which its Trigger is given, for where a person reads it, such as the Validation page.
+A rule about a set cannot be expressed that way: a Trigger sees one Unit, so it
 cannot tell whether a PodDisruptionBudget in another Unit covers the workload in this one. For
 those, the group's `guardrails annotate` command runs the fleet analysis and writes the finding
 onto each affected Unit as an annotation, and a per-resource rule warns while the annotation is
@@ -141,6 +145,7 @@ is worse than none.
 cmd/cub-manage/          main: the cub plugin hook, then the root command
 internal/cli/            the root command and the commands that are the tool's rather than a group's
 internal/kit/            what every group shares: invocation name, command layout, flag spellings
+internal/celrule/        builds the vet-cel expressions of the guardrail rules
 internal/cub/            the ConfigHub session and the writes groups have in common
 internal/<group>/        the group's analysis engine
 internal/<group>/snapshot/  the group's fleet snapshot
