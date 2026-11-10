@@ -65,7 +65,7 @@ resource or every Unit rather than one group's kinds:
   validate                 Resources match their schemas (vet-schemas)
   format                   YAML has no ambiguous syntax (vet-format)
   validate-dupes           No duplicate keys in merged lists (vet-merge-keys)
-  vet-namespace-required   Namespaced resources name their namespace (vet-cel)
+  vet-namespace-required   Namespaced resources name their namespace (vet-namespace)
   no-merge-conflicts       No unresolved merge conflicts (vet-no-merge-conflicts)
   no-link-findings         Links find everything they name (vet-no-link-findings)
   vet-no-placeholders      No placeholders left to fill (vet-placeholders),

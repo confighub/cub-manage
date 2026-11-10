@@ -3,35 +3,7 @@
 
 package cli
 
-import (
-	"strings"
-
-	"github.com/confighub/sdk/managerkit/guardrails"
-
-	"github.com/confighub/cub-manage/internal/celrule"
-)
-
-// clusterScopedKinds are the kinds namespace-required exempts: cluster-scoped,
-// so they have no namespace to set.
-var clusterScopedKinds = []string{
-	"Namespace", "ClusterRole", "ClusterRoleBinding", "ClusterIssuer", "ClusterSecretStore",
-	"CustomResourceDefinition", "StorageClass", "IngressClass", "PriorityClass", "RuntimeClass",
-	"ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
-	"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding",
-	"APIService", "PodSecurityPolicy", "PersistentVolume", "Node", "CSIDriver",
-}
-
-// celNamespaceRequired fails a namespaced resource that does not set its
-// namespace, at metadata.namespace.
-var celNamespaceRequired = func() string {
-	kinds := make([]string, len(clusterScopedKinds))
-	for i, kind := range clusterScopedKinds {
-		kinds[i] = celrule.Lit(kind)
-	}
-	missing := "!has(r.metadata.namespace) && !(r.kind in [" + strings.Join(kinds, ", ") + "])"
-	return celrule.Result(celrule.When(missing,
-		"["+celrule.Failure(celrule.Lit("metadata.namespace"), celrule.None, "'the ' + r.kind + ' sets no metadata.namespace'")+"]"))
-}()
+import "github.com/confighub/sdk/managerkit/guardrails"
 
 // basicPack is the tool-level guardrail group: rules about every resource or
 // every Unit rather than any group's kinds, which a Space opts into on its own.
@@ -51,8 +23,8 @@ var basicPack = guardrails.Pack{
 			Description: "Fails a list whose entries Kubernetes merges by a key, such as containers or env by name, when two entries share the key: applying it is an error. Fix: remove or rename the duplicate.",
 			Function:    "vet-merge-keys"},
 		{Slug: "vet-namespace-required", DisplayName: "Namespaced resources name their namespace",
-			Description: "Fails a namespaced resource that does not set metadata.namespace, so where it lands does not depend on the namespace it is applied with. Cluster-scoped kinds (Namespace, ClusterRole, StorageClass, CustomResourceDefinition and the like) are exempt. Fix: set metadata.namespace.",
-			Expression:  celNamespaceRequired},
+			Description: "Fails a resource that does not set metadata.namespace, unless ConfigHub knows its type to be cluster-scoped -- Namespace, ClusterRole, StorageClass, CustomResourceDefinition, Karpenter's NodePool and the like -- so where it lands does not depend on the namespace it is applied with. Fix: `set-namespace`, or `ensure-namespaces` to add a placeholder to set later.",
+			Function:    "vet-namespace"},
 		{Slug: "no-merge-conflicts", DisplayName: "No unresolved merge conflicts",
 			Description: "Fails a Unit with merge conflicts left from an upgrade or merge: changes from upstream that could not be applied over its own. Fix: resolve or dismiss each conflict.",
 			Function:    "vet-no-merge-conflicts"},
