@@ -10,12 +10,10 @@ package snapshot
 
 import (
 	"context"
-	"fmt"
-	"maps"
-	"slices"
 
 	"github.com/confighub/sdk/core/cubapi"
 
+	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/scheduling"
 )
 
@@ -97,35 +95,12 @@ func Load(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, error
 	}, nil
 }
 
-// idsPerQuery bounds how many IDs one IN filter names, so that the query string
-// stays within what the server accepts however large the fleet.
-const idsPerQuery = 100
-
 // joinTargetFacts reads the Target of each cluster for its facts: its zones,
-// its node labels and its default spread constraints. A cluster is keyed by its
-// Target's slug, so the facts are joined by slug.
+// its node labels and its default spread constraints.
 func joinTargetFacts(ctx context.Context, c *cubapi.Client, clusters map[string]*scheduling.ClusterWorkloads, units map[string]UnitMeta) error {
-	targetIDs := map[string]bool{}
-	for _, u := range units {
-		if u.TargetID != "" && clusters[u.TargetSlug] != nil {
-			targetIDs[u.TargetID] = true
-		}
-	}
-	factsBySlug := map[string]map[string]string{}
-	for ids := range slices.Chunk(slices.Sorted(maps.Keys(targetIDs)), idsPerQuery) {
-		targets, err := cubapi.ListTargets(ctx, c, cubapi.Where{}.InStrings("TargetID", ids),
-			cubapi.ListOpts{Select: "TargetID,Slug,Facts"})
-		if err != nil {
-			return fmt.Errorf("list Targets for their facts: %w", err)
-		}
-		for _, et := range targets {
-			if et.Target == nil {
-				continue
-			}
-			if _, seen := factsBySlug[et.Target.Slug]; !seen {
-				factsBySlug[et.Target.Slug] = et.Target.Facts
-			}
-		}
+	factsBySlug, err := cub.TargetFactsBySlug(ctx, c, units, func(slug string) bool { return clusters[slug] != nil })
+	if err != nil {
+		return err
 	}
 	for name, cw := range clusters {
 		facts, ok := factsBySlug[name]

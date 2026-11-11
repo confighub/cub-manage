@@ -14,18 +14,21 @@ import (
 
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/kit"
+	"github.com/confighub/cub-manage/internal/netpol"
 	"github.com/confighub/cub-manage/internal/netpol/snapshot"
 )
 
 type clusterSummary struct {
-	Cluster         string `json:"cluster"`
-	NetworkPolicies int    `json:"networkPolicies"`
-	Namespaces      int    `json:"namespaces"`
-	Workloads       int    `json:"workloads"`
-	Services        int    `json:"services"`
-	Units           int    `json:"units"`
-	GatedUnits      int    `json:"gatedUnits"`
-	UnreleasedUnits int    `json:"unreleasedUnits"`
+	Cluster string `json:"cluster"`
+	// Enforcement is whether the cluster's Target says it enforces NetworkPolicy.
+	Enforcement     netpol.Enforcement `json:"enforcement"`
+	NetworkPolicies int                `json:"networkPolicies"`
+	Namespaces      int                `json:"namespaces"`
+	Workloads       int                `json:"workloads"`
+	Services        int                `json:"services"`
+	Units           int                `json:"units"`
+	GatedUnits      int                `json:"gatedUnits"`
+	UnreleasedUnits int                `json:"unreleasedUnits"`
 }
 
 type snapshotReport struct {
@@ -98,6 +101,7 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 
 	for name, c := range snap.Clusters {
 		cs := get(name)
+		cs.Enforcement = c.Enforcement
 		cs.NetworkPolicies = len(c.NetworkPolicies)
 		cs.Namespaces = len(c.Namespaces)
 		cs.Workloads = len(c.Workloads)
@@ -148,10 +152,10 @@ func buildSnapshotReport(snap *snapshot.Snapshot) snapshotReport {
 
 func printSnapshotTable(cmd *cobra.Command, r snapshotReport) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "CLUSTER\tNETPOL\tNS\tWORKLOADS\tSVC\tUNITS\tGATED\tUNAPPLIED")
+	fmt.Fprintln(tw, "CLUSTER\tENFORCED\tNETPOL\tNS\tWORKLOADS\tSVC\tUNITS\tGATED\tUNAPPLIED")
 	for _, c := range r.Clusters {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
-			c.Cluster, c.NetworkPolicies, c.Namespaces, c.Workloads, c.Services,
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			c.Cluster, c.Enforcement, c.NetworkPolicies, c.Namespaces, c.Workloads, c.Services,
 			c.Units, c.GatedUnits, c.UnreleasedUnits)
 	}
 	_ = tw.Flush()

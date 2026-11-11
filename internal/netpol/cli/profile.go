@@ -25,10 +25,11 @@ import (
 const metadataIP = "169.254.169.254"
 
 // allowDNSYQ adds a DNS allowance to kube-dns on port 53 to a policy that
-// restricts egress and allows nothing on port 53, the allowance an egress
-// default-deny needs not to break name resolution.
+// restricts egress and allows nothing on UDP port 53, the allowance an egress
+// default-deny needs not to break name resolution. A port with no protocol is
+// TCP, which most lookups do not use, so it does not count.
 const allowDNSYQ = `(select(((.spec.policyTypes // []) | any_c(. == "Egress")) and ` +
-	`([.spec.egress[]?.ports[]? | select(.port == 53)] | length) == 0) | .spec.egress) |= ` +
+	`([.spec.egress[]?.ports[]? | select(.port == 53 and (.protocol // "TCP") == "UDP")] | length) == 0) | .spec.egress) |= ` +
 	`((. // []) + [{"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, ` +
 	`"podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}], "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}])`
 
