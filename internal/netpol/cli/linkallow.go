@@ -304,6 +304,17 @@ func writeAllowPlans(cmd *cobra.Command, client *cubapi.Client, snap *snapshot.S
 	var creations []cub.Creation
 	unchanged := &cubapi.Result{DryRun: ch.DryRun()}
 	results := []*cubapi.Result{unchanged}
+	// The policies that exist and gain sources are each edited by a write of their own, so the
+	// ChangeSet is opened on all of them first.
+	var editing []string
+	for _, p := range plans {
+		if existing := findPolicy(snap, p.Space, p.Unit); existing != nil && len(missingPeers(existing, p.srcWork)) > 0 {
+			editing = append(editing, existing.Origin.UnitID)
+		}
+	}
+	if err := cub.OpenChangeSetFirst(cmd.Context(), client, ch, editing); err != nil {
+		return nil, err
+	}
 	for _, p := range plans {
 		existing := findPolicy(snap, p.Space, p.Unit)
 		if existing == nil {

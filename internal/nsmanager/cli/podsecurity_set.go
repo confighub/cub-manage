@@ -118,6 +118,15 @@ Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 			}
 			plans, edits := nsmanager.PlanPodSecurity(fleet.clusters, fleet.postures, level, version, selected)
 
+			// Each Unit is labeled by a write of its own, so the ChangeSet is opened on all of
+			// them first.
+			unitIDs := make([]string, 0, len(edits))
+			for _, u := range edits {
+				unitIDs = append(unitIDs, u.UnitID)
+			}
+			if err := cub.OpenChangeSetFirst(cmd.Context(), client, ch, unitIDs); err != nil {
+				return err
+			}
 			var results []*cubapi.Result
 			for _, u := range edits {
 				sel := cubapi.Selector{Where: cubapi.Where{}.Eq("UnitID", u.UnitID).String()}
