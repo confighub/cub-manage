@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -20,7 +19,7 @@ import (
 func newInjectSidecarCmd() *cobra.Command {
 	var output, name, image string
 	var otlpPort int
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "inject-sidecar <space>/<unit>",
 		Short: "Inject (or update) a telemetry sidecar container into a workload",
@@ -45,10 +44,11 @@ ValidationErrors.`,
 			// carries the rest of the container.
 			value := fmt.Sprintf("image: %q\nports:\n- name: otlp-grpc\n  containerPort: %d\n", image, otlpPort)
 
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("inject %s sidecar into %s", name, args[0]))
+			ch, err := commit.Change(fmt.Sprintf("inject %s sidecar into %s", name, args[0]))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -57,7 +57,7 @@ ValidationErrors.`,
 			if err != nil {
 				return err
 			}
-			res, err := cub.InvokeSetPath(cmd.Context(), client, path, value, cub.WhereResourceTypes(cub.PodTemplateResourceTypes...), ref.Selector(), write.Change(changeDesc, dryRun))
+			res, err := cub.InvokeSetPath(cmd.Context(), client, path, value, cub.WhereResourceTypes(cub.PodTemplateResourceTypes...), ref.Selector(), ch)
 			if err != nil {
 				return err
 			}

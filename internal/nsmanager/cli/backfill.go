@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	api "github.com/confighub/sdk/core/function/api"
 	"github.com/confighub/sdk/managerkit/write"
@@ -23,7 +22,7 @@ import (
 
 func newBackfillCmd() *cobra.Command {
 	var output, spaceSlug, fromSpace, namespace string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "backfill --space <dest> --from <base-space> --namespace <ns>",
 		Short: "Clone a base Space's namespace policy Units into an existing Space and re-home them with set-namespace",
@@ -47,11 +46,12 @@ show what set-namespace would change in Units that do not exist yet.`,
 			if spaceSlug == "" || fromSpace == "" || namespace == "" {
 				return fmt.Errorf("--space, --from, and --namespace are all required")
 			}
-			changeDesc, dryRun, err := commit.Validate(
+			ch, err := commit.Change(
 				fmt.Sprintf("backfill namespace policy Units from %s into %s (namespace %s)", fromSpace, spaceSlug, namespace))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -139,7 +139,7 @@ show what set-namespace would change in Units that do not exist yet.`,
 				sel := cubapi.Selector{Where: fmt.Sprintf("SpaceID = '%s' AND Slug IN (%s)", dest.Space.SpaceID.String(), inList(clonedSlugs))}
 				res, err := cub.InvokeMutation(cmd.Context(), client, "set-namespace",
 					[]api.FunctionArgument{{ParameterName: "namespace-name", Value: namespace}},
-					sel, write.Change(changeDesc, false))
+					sel, ch)
 				if err != nil {
 					return fmt.Errorf("re-home cloned Units to namespace %q: %w", namespace, err)
 				}

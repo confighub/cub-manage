@@ -97,3 +97,15 @@ require (
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/kustomize/kyaml v0.19.0 // indirect
 )
+
+replace github.com/confighub/sdk/cliutil => ../confighub3/public/cliutil
+
+replace github.com/confighub/sdk/core => ../confighub3/public/core
+
+replace github.com/confighub/sdk/managerkit => ../confighub3/public/managerkit
+
+replace github.com/confighub/sdk/cubutil => ../confighub3/public/cubutil
+
+replace github.com/confighub/sdk/configkit/k8skit => ../confighub3/public/configkit/k8skit
+
+replace github.com/confighub/sdk/configkit/yqkit => ../confighub3/public/configkit/yqkit

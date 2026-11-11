@@ -107,9 +107,9 @@ func policyCreation(dest createDest, slug, manifest string) cub.Creation {
 }
 
 // ensurePolicy makes one generated policy Unit and reports it.
-func ensurePolicy(cmd *cobra.Command, client *cubapi.Client, command string, dest createDest, slug, manifest string, dryRun bool, changeDesc, output string) error {
-	res := cub.EnsureUnits(cmd.Context(), client, []cub.Creation{policyCreation(dest, slug, manifest)}, write.Change(changeDesc, dryRun))
-	return write.ReportMutations(cmd, command, dest.spaceSlug, dryRun, output, res)
+func ensurePolicy(cmd *cobra.Command, client *cubapi.Client, command string, dest createDest, slug, manifest string, ch cubapi.Change, output string) error {
+	res := cub.EnsureUnits(cmd.Context(), client, []cub.Creation{policyCreation(dest, slug, manifest)}, ch)
+	return write.ReportMutations(cmd, command, dest.spaceSlug, ch.DryRun(), output, res)
 }
 
 // destFromUnitMeta builds a createDest from an existing Unit's metadata — used

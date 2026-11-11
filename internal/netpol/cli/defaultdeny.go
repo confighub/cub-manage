@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -25,7 +24,7 @@ func newDefaultDenyCmd() *cobra.Command {
 	var output, clusterFilter, spaceOverride string
 	var egress bool
 	var filter kit.FilterFlags
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "default-deny [<namespace>]",
 		Short: "Make a default-deny NetworkPolicy Unit for a namespace, or for every namespace that lacks one",
@@ -63,10 +62,11 @@ created, or brought up to date if it exists, so re-running changes nothing.`,
 			} else if spaceOverride != "" {
 				return fmt.Errorf("--space chooses among the Spaces of one namespace; name the namespace, or scope the fleet with --where")
 			}
-			changeDesc, dryRun, err := commit.Validate(summary)
+			ch, err := commit.Change(summary)
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -96,7 +96,7 @@ created, or brought up to date if it exists, so re-running changes nothing.`,
 			} else {
 				creations, others = planDefaultDenies(snap, clusterFilter, egress)
 			}
-			res := cub.EnsureUnits(cmd.Context(), client, creations, write.Change(changeDesc, dryRun))
+			res := cub.EnsureUnits(cmd.Context(), client, creations, ch)
 			res.Outcomes = append(res.Outcomes, others...)
 			return write.ReportMutations(cmd, "default-deny", space, dryRun, output, res)
 		},

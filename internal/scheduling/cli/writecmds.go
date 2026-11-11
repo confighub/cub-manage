@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
+	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -25,7 +25,7 @@ const podSpecPath = ".spec.template.spec"
 func newSetNodeSelectorCmd() *cobra.Command {
 	var output string
 	var selectors []string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-node-selector <space>/<unit>",
 		Short: "Set the pod-template nodeSelector (which nodes the workload may land on)",
@@ -48,11 +48,11 @@ ValidationErrors.`,
 				return err
 			}
 			expr := fmt.Sprintf("%s.nodeSelector = {%s}", podSpecPath, mapLiteral(pairs))
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("set nodeSelector on %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("set nodeSelector on %s", args[0]))
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-node-selector", args[0], expr, dryRun, changeDesc, output)
+			return runYQ(cmd, "set-node-selector", args[0], expr, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -65,7 +65,7 @@ ValidationErrors.`,
 func newSetTolerationsCmd() *cobra.Command {
 	var output string
 	var tolerations []string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-tolerations <space>/<unit>",
 		Short: "Set the pod-template tolerations (which node taints the workload tolerates)",
@@ -88,11 +88,11 @@ affinity to actually land there. Dry-run unless --commit --change-desc.`,
 				return err
 			}
 			expr := fmt.Sprintf("%s.tolerations = [%s]", podSpecPath, strings.Join(objs, ", "))
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("set tolerations on %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("set tolerations on %s", args[0]))
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-tolerations", args[0], expr, dryRun, changeDesc, output)
+			return runYQ(cmd, "set-tolerations", args[0], expr, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -105,7 +105,7 @@ affinity to actually land there. Dry-run unless --commit --change-desc.`,
 func newSetNodeAffinityCmd() *cobra.Command {
 	var output string
 	var required []string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-node-affinity <space>/<unit>",
 		Short: "Set a required node affinity term (harder placement than nodeSelector)",
@@ -127,11 +127,11 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 			}
 			expr := fmt.Sprintf("%s.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms = [{\"matchExpressions\": [%s]}]",
 				podSpecPath, strings.Join(exprs, ", "))
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("set node affinity on %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("set node affinity on %s", args[0]))
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-node-affinity", args[0], expr, dryRun, changeDesc, output)
+			return runYQ(cmd, "set-node-affinity", args[0], expr, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -141,7 +141,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 }
 
 // runYQ resolves the target and applies a set-yq expression, dry-run or commit.
-func runYQ(cmd *cobra.Command, command, target, expr string, dryRun bool, changeDesc, output string) error {
+func runYQ(cmd *cobra.Command, command, target, expr string, ch cubapi.Change, output string) error {
 	client, err := cub.Preflight(cmd.Context())
 	if err != nil {
 		return err
@@ -150,11 +150,11 @@ func runYQ(cmd *cobra.Command, command, target, expr string, dryRun bool, change
 	if err != nil {
 		return err
 	}
-	res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.PodTemplateResourceTypes...), ref.Selector(), write.Change(changeDesc, dryRun))
+	res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.PodTemplateResourceTypes...), ref.Selector(), ch)
 	if err != nil {
 		return err
 	}
-	return write.ReportMutations(cmd, command, ref.SpaceSlug, dryRun, output, res)
+	return write.ReportMutations(cmd, command, ref.SpaceSlug, ch.DryRun(), output, res)
 }
 
 // --- parsing + yq literal helpers ---

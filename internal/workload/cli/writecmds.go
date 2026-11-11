@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	api "github.com/confighub/sdk/core/function/api"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -19,7 +18,7 @@ import (
 // newHardenCmd applies the security-context and automount defaults to a workload.
 func newHardenCmd() *cobra.Command {
 	var output string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "harden <space>/<unit>",
 		Short: "Apply pod/container security-context defaults and disable SA-token automount",
@@ -43,10 +42,11 @@ separate 'cub release publish <space>'. Dry-run unless --commit --change-desc;
 never bypasses ValidationErrors.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("harden workload %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("harden workload %s", args[0]))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -58,7 +58,7 @@ never bypasses ValidationErrors.`,
 			res, err := cub.InvokeMutations(cmd.Context(), client, []api.FunctionInvocation{
 				{FunctionName: "set-pod-container-security-context-defaults"},
 				{FunctionName: "set-automount-service-account-token-false"},
-			}, ref.Selector(), write.Change(changeDesc, dryRun))
+			}, ref.Selector(), ch)
 			if err != nil {
 				return err
 			}
@@ -81,7 +81,7 @@ var resourceTiers = map[string]struct{ cpu, memory string }{
 func newSetResourcesCmd() *cobra.Command {
 	var output, container, tier, cpu, memory string
 	var limitFactor int
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-resources <space>/<unit>",
 		Short: "Set container CPU/memory requests and limits (by tier or explicit values)",
@@ -105,10 +105,11 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 			if cpu == "" || memory == "" {
 				return fmt.Errorf("provide --tier, or both --cpu and --memory")
 			}
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("set resources on %s (%s/%s, limit-factor %d)", args[0], cpu, memory, limitFactor))
+			ch, err := commit.Change(fmt.Sprintf("set resources on %s (%s/%s, limit-factor %d)", args[0], cpu, memory, limitFactor))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -124,7 +125,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 				{ParameterName: "memory", Value: memory},
 				{ParameterName: "limit-factor", Value: limitFactor},
 			}
-			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-resources", resArgs, ref.Selector(), write.Change(changeDesc, dryRun))
+			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-resources", resArgs, ref.Selector(), ch)
 			if err != nil {
 				return err
 			}
@@ -144,7 +145,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 // newSetProbesCmd adds probe defaults via set-container-probe-defaults.
 func newSetProbesCmd() *cobra.Command {
 	var output, livenessPath, readinessPath, startupPath string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-probes <space>/<unit>",
 		Short: "Add liveness/readiness/startup probe defaults to containers missing them",
@@ -157,10 +158,11 @@ Override the probe paths with --liveness-path / --readiness-path / --startup-pat
 ValidationErrors.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("add probe defaults to %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("add probe defaults to %s", args[0]))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -178,7 +180,7 @@ ValidationErrors.`,
 			addArg("liveness-path", livenessPath)
 			addArg("readiness-path", readinessPath)
 			addArg("startup-path", startupPath)
-			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-probe-defaults", fnArgs, ref.Selector(), write.Change(changeDesc, dryRun))
+			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-probe-defaults", fnArgs, ref.Selector(), ch)
 			if err != nil {
 				return err
 			}

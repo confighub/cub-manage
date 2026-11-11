@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -25,7 +24,7 @@ const unitManagedByLabel = "cub manage observability"
 
 func newEnsureServiceMonitorCmd() *cobra.Command {
 	var output, portName string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "ensure-servicemonitor <space>/<service-unit>",
 		Short: "Make a ServiceMonitor Unit that selects a Service",
@@ -39,10 +38,11 @@ Refuses when the Service has no metrics port and no --port. Dry-run unless
 --commit --change-desc.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("ensure ServiceMonitor for %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("ensure ServiceMonitor for %s", args[0]))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -82,7 +82,7 @@ Refuses when the Service has no metrics port and no --port. Dry-run unless
 					Labels:        map[string]string{"managed-by": unitManagedByLabel},
 				},
 				Data: manifest,
-			}}, write.Change(changeDesc, dryRun))
+			}}, ch)
 			return write.ReportMutations(cmd, "ensure-servicemonitor", ref.SpaceSlug, dryRun, output, res)
 		},
 	}

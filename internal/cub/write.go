@@ -111,6 +111,9 @@ func createWithData(ctx context.Context, c *cubapi.Client, cr Creation, ch cubap
 		return o
 	}
 	o.Success, o.Diff = true, written.Diff
+	if written.Conflicts != nil {
+		o.Conflicts = *written.Conflicts
+	}
 	return o
 }
 
@@ -145,6 +148,9 @@ func UpdateUnitData(ctx context.Context, c *cubapi.Client, ref UnitRef, data, if
 		Success: true, Diff: written.Diff,
 	}
 	o.HasMutations = o.Diff != nil && len(o.Diff.Resources) > 0
+	if written.Conflicts != nil {
+		o.Conflicts = *written.Conflicts
+	}
 	return &cubapi.Result{DryRun: ch.DryRun(), Outcomes: []cubapi.UnitOutcome{o}}, nil
 }
 
@@ -164,6 +170,11 @@ func uploadUnitDataIfMatch(ctx context.Context, c *cubapi.Client, spaceID, unitI
 	if ifMatch != "" {
 		params.IfMatch = &ifMatch
 	}
+	gp, err := ch.GuardParams()
+	if err != nil {
+		return nil, err
+	}
+	params.Guards, params.InheritedGuards, params.Clearance = gp.Guards, gp.InheritedGuards, gp.Clearance
 	res, err := c.API.UploadUnitDataWithBodyWithResponse(ctx, spaceID, unitID, params,
 		"application/octet-stream", strings.NewReader(data))
 	if cubapi.IsAPIError(err, res) {

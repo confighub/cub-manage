@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
+	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/kit"
 	"github.com/confighub/cub-manage/internal/scheduling"
@@ -141,7 +141,7 @@ func newSetTopologySpreadCmd() *cobra.Command {
 	var output string
 	var c spreadConstraint
 	var remove bool
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-topology-spread <space>/<unit>",
 		Short: "Set or remove a topology spread constraint (how evenly replicas spread across zones or nodes)",
@@ -193,11 +193,11 @@ ValidationErrors.`,
 				expr = upsertSpreadYQ(c)
 				what = fmt.Sprintf("set topology spread on %s for %s", c.topologyKey, args[0])
 			}
-			changeDesc, dryRun, err := commit.Validate(what)
+			ch, err := commit.Change(what)
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-topology-spread", args[0], expr, dryRun, changeDesc, output)
+			return runYQ(cmd, "set-topology-spread", args[0], expr, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -219,7 +219,7 @@ func newSetPodAntiAffinityCmd() *cobra.Command {
 	var output, topologyKey string
 	var required, remove bool
 	var weight int
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-pod-anti-affinity <space>/<unit>",
 		Short: "Set or remove pod anti-affinity against the workload's own Pods",
@@ -253,11 +253,11 @@ ValidationErrors.`,
 			if remove {
 				what = fmt.Sprintf("remove pod anti-affinity on %s from %s", topologyKey, args[0])
 			}
-			changeDesc, dryRun, err := commit.Validate(what)
+			ch, err := commit.Change(what)
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-pod-anti-affinity", args[0], antiAffinityYQ(topologyKey, required, weight, remove), dryRun, changeDesc, output)
+			return runYQ(cmd, "set-pod-anti-affinity", args[0], antiAffinityYQ(topologyKey, required, weight, remove), ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
