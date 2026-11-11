@@ -105,6 +105,13 @@ func AddNamespaceFlag(cmd *cobra.Command, dest *string) {
 	cmd.Flags().StringVar(dest, "namespace", "", "only this namespace")
 }
 
+// AddWhereResourceFlag binds --where-resource, which narrows a write to one Unit to the resources
+// the expression selects, for a Unit holding more than the workload to change.
+func AddWhereResourceFlag(cmd *cobra.Command, dest *string) {
+	cmd.Flags().StringVar(dest, "where-resource", "",
+		"only the resources of the Unit this selects, as in \"ConfigHub.ResourceName = 'kube-system/efs-csi-controller'\" or \"ConfigHub.ResourceType = 'apps/v1/Deployment'\" (default: every resource)")
+}
+
 // AddIssuesOnlyFlag binds --issues-only, which narrows a report to the rows
 // with a problem. what says what a problem is in this report.
 func AddIssuesOnlyFlag(cmd *cobra.Command, dest *bool, what string) {

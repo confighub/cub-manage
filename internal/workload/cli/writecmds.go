@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/confighub/sdk/core/cubapi"
 	api "github.com/confighub/sdk/core/function/api"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -18,6 +19,7 @@ import (
 // newHardenCmd applies the security-context and automount defaults to a workload.
 func newHardenCmd() *cobra.Command {
 	var output string
+	var whereResource string
 	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "harden <space>/<unit>",
@@ -35,6 +37,10 @@ value already chosen -- readOnlyRootFilesystem: false for a container that
 writes to its filesystem, automountServiceAccountToken: true for one that calls
 the Kubernetes API -- is kept. Check that the image runs as 1000:3000, or set
 runAsUser/runAsGroup first, since those are filled in when unset.
+
+They change every workload in the Unit. For a Unit that holds more than the one
+to harden, --where-resource selects it, as in
+--where-resource "ConfigHub.ResourceName = 'kube-system/efs-csi-controller'".
 
 The dry run prints the diff: each path the functions would set, with its value
 before and after. The Unit is edited, not published — rolling it out is a
@@ -58,7 +64,7 @@ never bypasses ValidationErrors.`,
 			res, err := cub.InvokeMutations(cmd.Context(), client, []api.FunctionInvocation{
 				{FunctionName: "set-pod-container-security-context-defaults"},
 				{FunctionName: "set-automount-service-account-token-false"},
-			}, ref.Selector(), ch)
+			}, resourcesOf(ref, whereResource), ch)
 			if err != nil {
 				return err
 			}
@@ -66,6 +72,7 @@ never bypasses ValidationErrors.`,
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
+	kit.AddWhereResourceFlag(cmd, &whereResource)
 	commit.Bind(cmd)
 	return cmd
 }
@@ -81,6 +88,7 @@ var resourceTiers = map[string]struct{ cpu, memory string }{
 func newSetResourcesCmd() *cobra.Command {
 	var output, container, tier, cpu, memory string
 	var limitFactor int
+	var whereResource string
 	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-resources <space>/<unit>",
@@ -125,7 +133,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 				{ParameterName: "memory", Value: memory},
 				{ParameterName: "limit-factor", Value: limitFactor},
 			}
-			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-resources", resArgs, ref.Selector(), ch)
+			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-resources", resArgs, resourcesOf(ref, whereResource), ch)
 			if err != nil {
 				return err
 			}
@@ -133,6 +141,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
+	kit.AddWhereResourceFlag(cmd, &whereResource)
 	commit.Bind(cmd)
 	cmd.Flags().StringVar(&container, "container", "*", "container name to set (default '*' = all)")
 	cmd.Flags().StringVar(&tier, "tier", "", "resource tier: small | medium | large")
@@ -145,6 +154,7 @@ Dry-run unless --commit --change-desc; never bypasses ValidationErrors.`,
 // newSetProbesCmd adds probe defaults via set-container-probe-defaults.
 func newSetProbesCmd() *cobra.Command {
 	var output, livenessPath, readinessPath, startupPath string
+	var whereResource string
 	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-probes <space>/<unit>",
@@ -180,7 +190,7 @@ ValidationErrors.`,
 			addArg("liveness-path", livenessPath)
 			addArg("readiness-path", readinessPath)
 			addArg("startup-path", startupPath)
-			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-probe-defaults", fnArgs, ref.Selector(), ch)
+			res, err := cub.InvokeMutation(cmd.Context(), client, "set-container-probe-defaults", fnArgs, resourcesOf(ref, whereResource), ch)
 			if err != nil {
 				return err
 			}
@@ -188,9 +198,18 @@ ValidationErrors.`,
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
+	kit.AddWhereResourceFlag(cmd, &whereResource)
 	commit.Bind(cmd)
 	cmd.Flags().StringVar(&livenessPath, "liveness-path", "", "HTTP path for the liveness probe (default /healthz)")
 	cmd.Flags().StringVar(&readinessPath, "readiness-path", "", "HTTP path for the readiness probe (default /healthz)")
 	cmd.Flags().StringVar(&startupPath, "startup-path", "", "HTTP path for the startup probe (default /healthz)")
 	return cmd
+}
+
+// resourcesOf selects the Unit ref names, narrowed to the resources whereResource selects when it
+// is set.
+func resourcesOf(ref write.UnitRef, whereResource string) cubapi.Selector {
+	sel := ref.Selector()
+	sel.WhereResource = whereResource
+	return sel
 }
