@@ -250,6 +250,9 @@ And the guards ConfigHub holds every change to, as `cub` takes them: `--guard` a
 lets it overwrite paths guarded for the reasons it names; a write is cleared for the guards it
 records. A Unit whose configuration is uploaded from somewhere else needs `--guard
 Override=External` on what a command writes into it, or the next upload removes it.
+`--changeset` makes the change in a ChangeSet, for review: a commit opens it on the Units the
+change selects, all of them or none -- a Unit is in one ChangeSet at a time -- and leaves it open,
+and a dry run refuses as the commit would.
 
 ### 5.4 Arguments and names
 

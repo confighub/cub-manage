@@ -89,9 +89,10 @@ func createWithData(ctx context.Context, c *cubapi.Client, cr Creation, ch cubap
 	o := cubapi.UnitOutcome{
 		SpaceID: cr.Unit.SpaceID.String(), SpaceSlug: cr.SpaceSlug, UnitSlug: cr.Unit.Slug, HasMutations: true,
 	}
-	u := cr.Unit
-	u.LastChangeDescription = ch.Description
-	created, err := createUnit(ctx, c, u, ch.DryRun())
+	// The description goes on the upload, the revision that holds the configuration. On the
+	// create too, the upload's would match the Unit's last description, which the server takes
+	// as no description given and records its default instead.
+	created, err := createUnit(ctx, c, cr.Unit, ch.DryRun())
 	if err != nil {
 		o.Error = err.Error()
 		return o
@@ -175,6 +176,9 @@ func uploadUnitDataIfMatch(ctx context.Context, c *cubapi.Client, spaceID, unitI
 		return nil, err
 	}
 	params.Guards, params.InheritedGuards, params.Clearance = gp.Guards, gp.InheritedGuards, gp.Clearance
+	if params.ChangeSetId, err = ch.OpenChangeSet(ctx, c, cubapi.Where{}.Eq("UnitID", unitID.String()).String()); err != nil {
+		return nil, err
+	}
 	res, err := c.API.UploadUnitDataWithBodyWithResponse(ctx, spaceID, unitID, params,
 		"application/octet-stream", strings.NewReader(data))
 	if cubapi.IsAPIError(err, res) {
