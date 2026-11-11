@@ -245,6 +245,14 @@ Output: `-o`/`--output` on every command — `json` (the default), `yaml`, `tabl
 `yq=<expr>`.
 
 Writes: `--commit`, without which a write is a dry run, and `--change-desc`, required with it.
+And the guards ConfigHub holds every change to, as `cub` takes them: `--guard` and
+`--inherited-guard` record a reason (`KEY=VALUE`) on the paths the write changes, and `--clearance`
+lets it overwrite paths guarded for the reasons it names; a write is cleared for the guards it
+records. A Unit whose configuration is uploaded from somewhere else needs `--guard
+Override=External` on what a command writes into it, or the next upload removes it.
+`--changeset` makes the change in a ChangeSet, for review: a commit opens it on the Units the
+change selects, all of them or none -- a Unit is in one ChangeSet at a time -- and leaves it open,
+and a dry run refuses as the commit would.
 
 ### 5.4 Arguments and names
 

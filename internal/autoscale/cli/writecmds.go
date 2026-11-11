@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
+	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
@@ -21,7 +21,7 @@ import (
 func newSetHPACmd() *cobra.Command {
 	var output string
 	var min, max, cpu, memory int
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set-hpa <space>/<unit>",
 		Short: "Edit a HorizontalPodAutoscaler's min/max replicas and cpu/memory targets",
@@ -57,11 +57,11 @@ To add an HPA to a workload that has none, or to convert an HPA to KEDA, see
 				return fmt.Errorf("--min (%d) must not exceed --max (%d)", min, max)
 			}
 			expr := strings.Join(parts, " | ")
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("set HPA bounds/targets on %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("set HPA bounds/targets on %s", args[0]))
 			if err != nil {
 				return err
 			}
-			return runYQ(cmd, "set-hpa", args[0], expr, dryRun, changeDesc, output)
+			return runYQ(cmd, "set-hpa", args[0], expr, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)
@@ -94,7 +94,7 @@ func resourceMetricEntry(name string, pct int) string {
 }
 
 // runYQ resolves the target and applies a set-yq expression, dry-run or commit.
-func runYQ(cmd *cobra.Command, command, target, expr string, dryRun bool, changeDesc, output string) error {
+func runYQ(cmd *cobra.Command, command, target, expr string, ch cubapi.Change, output string) error {
 	client, err := cub.Preflight(cmd.Context())
 	if err != nil {
 		return err
@@ -103,9 +103,9 @@ func runYQ(cmd *cobra.Command, command, target, expr string, dryRun bool, change
 	if err != nil {
 		return err
 	}
-	res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.HPAResourceTypes...), ref.Selector(), write.Change(changeDesc, dryRun))
+	res, err := cub.MutateUnitYQ(cmd.Context(), client, expr, cub.WhereResourceTypes(cub.HPAResourceTypes...), ref.Selector(), ch)
 	if err != nil {
 		return err
 	}
-	return write.ReportMutations(cmd, command, ref.SpaceSlug, dryRun, output, res)
+	return write.ReportMutations(cmd, command, ref.SpaceSlug, ch.DryRun(), output, res)
 }

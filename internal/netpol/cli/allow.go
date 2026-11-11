@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
+	"github.com/confighub/sdk/managerkit/write"
 
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/kit"
@@ -22,7 +22,7 @@ func newAllowCmd() *cobra.Command {
 	var output, clusterFilter, srcNamespace, dstNamespace, port, spaceOverride string
 	var egress bool
 	var filter kit.FilterFlags
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "allow <src-workload> <dst-workload>",
 		Short: "Create an allow NetworkPolicy Unit between two workloads",
@@ -40,7 +40,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			srcName, dstName := args[0], args[1]
 			summary := fmt.Sprintf("allow %s -> %s via NetworkPolicy", srcName, dstName)
-			changeDesc, dryRun, err := commit.Validate(summary)
+			ch, err := commit.Change(summary)
 			if err != nil {
 				return err
 			}
@@ -80,7 +80,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 			if err != nil {
 				return err
 			}
-			return ensurePolicy(cmd, client, "allow", dest, slug, manifest, dryRun, changeDesc, output)
+			return ensurePolicy(cmd, client, "allow", dest, slug, manifest, ch, output)
 		},
 	}
 	kit.AddOutputFlag(cmd, &output)

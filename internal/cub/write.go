@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/confighub/sdk/core/cubapi"
 	api "github.com/confighub/sdk/core/function/api"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
@@ -64,9 +66,32 @@ type Creation struct {
 // cluster.
 func EnsureUnits(ctx context.Context, c *cubapi.Client, creations []Creation, ch cubapi.Change) *cubapi.Result {
 	res := &cubapi.Result{DryRun: ch.DryRun()}
-	for _, cr := range creations {
+	type resolved struct {
+		existing UnitRef
+		err      error
+	}
+	found := make([]resolved, len(creations))
+	var existingIDs []string
+	for i, cr := range creations {
+		found[i].existing, found[i].err = ResolveUnit(ctx, c, cr.SpaceSlug, cr.Unit.Slug)
+		if found[i].err == nil {
+			existingIDs = append(existingIDs, found[i].existing.UnitID.String())
+		}
+	}
+	// The Units that exist are opened in the ChangeSet together, so another ChangeSet holding one
+	// of them refuses them all. The Units created here are in no ChangeSet yet, so each is
+	// opened as it is written.
+	if err := OpenChangeSetFirst(ctx, c, ch, existingIDs); err != nil {
+		for _, cr := range creations {
+			res.Outcomes = append(res.Outcomes, cubapi.UnitOutcome{
+				SpaceID: cr.Unit.SpaceID.String(), SpaceSlug: cr.SpaceSlug, UnitSlug: cr.Unit.Slug, Error: err.Error(),
+			})
+		}
+		return res
+	}
+	for i, cr := range creations {
 		o := cubapi.UnitOutcome{SpaceID: cr.Unit.SpaceID.String(), SpaceSlug: cr.SpaceSlug, UnitSlug: cr.Unit.Slug}
-		existing, err := ResolveUnit(ctx, c, cr.SpaceSlug, cr.Unit.Slug)
+		existing, err := found[i].existing, found[i].err
 		switch {
 		case err == nil:
 			updated, err := UpdateUnitData(ctx, c, existing, cr.Data, "", ch)
@@ -85,13 +110,34 @@ func EnsureUnits(ctx context.Context, c *cubapi.Client, creations []Creation, ch
 	return res
 }
 
+// OpenChangeSetFirst opens ch's ChangeSet on the Units a command is about to write one at a time,
+// all of them or none, before it writes any: a write per Unit would otherwise open it Unit by
+// Unit, and stop at the first one another ChangeSet holds with the ones before it already
+// written. It does nothing when ch names no ChangeSet.
+func OpenChangeSetFirst(ctx context.Context, c *cubapi.Client, ch cubapi.Change, unitIDs []string) error {
+	if ch.ChangeSet == "" || len(unitIDs) == 0 {
+		return nil
+	}
+	ids := make([]goclientnew.UUID, 0, len(unitIDs))
+	for _, s := range unitIDs {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return fmt.Errorf("unit ID %q: %w", s, err)
+		}
+		ids = append(ids, id)
+	}
+	_, err := ch.OpenChangeSetOnUnits(ctx, c, ids)
+	return err
+}
+
 func createWithData(ctx context.Context, c *cubapi.Client, cr Creation, ch cubapi.Change) cubapi.UnitOutcome {
 	o := cubapi.UnitOutcome{
 		SpaceID: cr.Unit.SpaceID.String(), SpaceSlug: cr.SpaceSlug, UnitSlug: cr.Unit.Slug, HasMutations: true,
 	}
-	u := cr.Unit
-	u.LastChangeDescription = ch.Description
-	created, err := createUnit(ctx, c, u, ch.DryRun())
+	// The description goes on the upload, the revision that holds the configuration. On the
+	// create too, the upload's would match the Unit's last description, which the server takes
+	// as no description given and records its default instead.
+	created, err := createUnit(ctx, c, cr.Unit, ch.DryRun())
 	if err != nil {
 		o.Error = err.Error()
 		return o
@@ -111,6 +157,9 @@ func createWithData(ctx context.Context, c *cubapi.Client, cr Creation, ch cubap
 		return o
 	}
 	o.Success, o.Diff = true, written.Diff
+	if written.Conflicts != nil {
+		o.Conflicts = *written.Conflicts
+	}
 	return o
 }
 
@@ -145,6 +194,9 @@ func UpdateUnitData(ctx context.Context, c *cubapi.Client, ref UnitRef, data, if
 		Success: true, Diff: written.Diff,
 	}
 	o.HasMutations = o.Diff != nil && len(o.Diff.Resources) > 0
+	if written.Conflicts != nil {
+		o.Conflicts = *written.Conflicts
+	}
 	return &cubapi.Result{DryRun: ch.DryRun(), Outcomes: []cubapi.UnitOutcome{o}}, nil
 }
 
@@ -163,6 +215,14 @@ func uploadUnitDataIfMatch(ctx context.Context, c *cubapi.Client, spaceID, unitI
 	}
 	if ifMatch != "" {
 		params.IfMatch = &ifMatch
+	}
+	gp, err := ch.GuardParams()
+	if err != nil {
+		return nil, err
+	}
+	params.Guards, params.InheritedGuards, params.Clearance = gp.Guards, gp.InheritedGuards, gp.Clearance
+	if params.ChangeSetId, err = ch.OpenChangeSetOnUnits(ctx, c, []goclientnew.UUID{unitID}); err != nil {
+		return nil, err
 	}
 	res, err := c.API.UploadUnitDataWithBodyWithResponse(ctx, spaceID, unitID, params,
 		"application/octet-stream", strings.NewReader(data))

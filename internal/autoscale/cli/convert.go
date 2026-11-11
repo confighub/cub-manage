@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -20,7 +19,7 @@ import (
 
 func newConvertCmd() *cobra.Command {
 	var output string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "convert-keda <space>/<unit>",
 		Short: "Convert a HorizontalPodAutoscaler Unit to a KEDA ScaledObject",
@@ -47,10 +46,11 @@ its catalog.`,
 			if !ok || space == "" || unit == "" {
 				return fmt.Errorf("target must be <space>/<unit>, got %q", args[0])
 			}
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("convert HPA to KEDA ScaledObject in %s", args[0]))
+			ch, err := commit.Change(fmt.Sprintf("convert HPA to KEDA ScaledObject in %s", args[0]))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			ctx := cmd.Context()
 			client, err := cub.Preflight(ctx)
 			if err != nil {
@@ -74,7 +74,7 @@ its catalog.`,
 				UnitID: ref.UnitID.String(), SpaceSlug: space, UnitSlug: unit, Success: true,
 			}}}
 			if changed {
-				if res, err = cub.UpdateUnitData(ctx, client, ref, mutated, etag, write.Change(changeDesc, dryRun)); err != nil {
+				if res, err = cub.UpdateUnitData(ctx, client, ref, mutated, etag, ch); err != nil {
 					return err
 				}
 			}

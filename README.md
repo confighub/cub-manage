@@ -98,6 +98,14 @@ cub manage guardrails update workload-runs-nonroot --enforce --commit   # warnin
 - **Writes** are dry runs unless `--commit` is given with `--change-desc`. They edit or create Units
   and never apply them to a cluster; releasing a change is a separate step. They never bypass a
   gate.
+- **Guards.** Every write takes `--guard` and `--inherited-guard`, which record a reason on the
+  paths it writes, and `--clearance`, which lets it overwrite paths guarded for the reasons it
+  names. A Unit uploaded from files, such as a rendered chart, loses a value written into it the
+  next time it is uploaded unless the value is guarded: `--guard Override=External`.
+- **ChangeSets.** Every write takes `--changeset <space>/<slug>` to make the change in a ChangeSet,
+  so it can be reviewed and restored as one. A commit opens the ChangeSet on the Units it writes,
+  all of them or none, and leaves it open; its revisions cannot be released until it is closed,
+  as with `cub variant changeset close`.
 - **Guardrails** install as warnings. Make one blocking with
   `cub manage guardrails update <slug> --enforce --commit`.
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	api "github.com/confighub/sdk/core/function/api"
 	"github.com/confighub/sdk/managerkit"
@@ -34,7 +33,7 @@ func newPodSecuritySetCmd() *cobra.Command {
 	var output, clusterFilter, namespaceFilter, level, version string
 	var bases bool
 	var filter kit.FilterFlags
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "set",
 		Short: "Set each namespace's Pod Security Standard to the most restrictive level its workloads meet",
@@ -85,10 +84,11 @@ Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 			if version == "" {
 				version = "latest"
 			}
-			changeDesc, dryRun, err := commit.Validate("apply the Pod Security Standard level their workloads meet to the selected namespaces")
+			ch, err := commit.Change("apply the Pod Security Standard level their workloads meet to the selected namespaces")
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -118,7 +118,15 @@ Dry-run unless --commit --change-desc; the dry run shows each Unit's diff.`,
 			}
 			plans, edits := nsmanager.PlanPodSecurity(fleet.clusters, fleet.postures, level, version, selected)
 
-			ch := write.Change(changeDesc, dryRun)
+			// Each Unit is labeled by a write of its own, so the ChangeSet is opened on all of
+			// them first.
+			unitIDs := make([]string, 0, len(edits))
+			for _, u := range edits {
+				unitIDs = append(unitIDs, u.UnitID)
+			}
+			if err := cub.OpenChangeSetFirst(cmd.Context(), client, ch, unitIDs); err != nil {
+				return err
+			}
 			var results []*cubapi.Result
 			for _, u := range edits {
 				sel := cubapi.Selector{Where: cubapi.Where{}.Eq("UnitID", u.UnitID).String()}

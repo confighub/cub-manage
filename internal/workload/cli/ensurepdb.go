@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -26,7 +25,7 @@ const unitManagedByLabel = "cub manage workload"
 func newEnsurePDBCmd() *cobra.Command {
 	var output string
 	var minAvailable, maxUnavailable string
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "ensure-pdb <space>/<unit>",
 		Short: "Make a PodDisruptionBudget Unit whose selector matches a workload's pods",
@@ -51,10 +50,11 @@ would cover the whole namespace). Dry-run unless --commit --change-desc.`,
 			case maxUnavailable != "":
 				policyKey, policyVal = "maxUnavailable", maxUnavailable
 			}
-			changeDesc, dryRun, err := commit.Validate(fmt.Sprintf("ensure PodDisruptionBudget for %s (%s: %s)", args[0], policyKey, policyVal))
+			ch, err := commit.Change(fmt.Sprintf("ensure PodDisruptionBudget for %s (%s: %s)", args[0], policyKey, policyVal))
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -90,7 +90,7 @@ would cover the whole namespace). Dry-run unless --commit --change-desc.`,
 					Labels:        map[string]string{"managed-by": unitManagedByLabel},
 				},
 				Data: manifest,
-			}}, write.Change(changeDesc, dryRun))
+			}}, ch)
 			return write.ReportMutations(cmd, "ensure-pdb", ref.SpaceSlug, dryRun, output, res)
 		},
 	}

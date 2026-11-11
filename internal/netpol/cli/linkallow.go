@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/confighub/sdk/cliutil"
 	"github.com/confighub/sdk/core/cubapi"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
 	"github.com/confighub/sdk/managerkit/write"
@@ -48,7 +47,7 @@ func newAllowFromLinksCmd() *cobra.Command {
 	var output, spaceFilter, clusterFilter, port string
 	var perEdge bool
 	var filter kit.FilterFlags
-	var commit cliutil.CommitFlags
+	var commit write.CommitFlags
 	cmd := &cobra.Command{
 		Use:   "allow-from-links",
 		Short: "Generate allow NetworkPolicies from ConfigHub Links (the dependency graph)",
@@ -73,10 +72,11 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			summary := "generate allow NetworkPolicies from ConfigHub Links"
-			changeDesc, dryRun, err := commit.Validate(summary)
+			ch, err := commit.Change(summary)
 			if err != nil {
 				return err
 			}
+			dryRun := ch.DryRun()
 			client, err := cub.Preflight(cmd.Context())
 			if err != nil {
 				return err
@@ -102,7 +102,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 				return err
 			}
 
-			results, err := writeAllowPlans(cmd, client, snap, plans, write.Change(changeDesc, dryRun))
+			results, err := writeAllowPlans(cmd, client, snap, plans, ch)
 			if err != nil {
 				return err
 			}
@@ -304,6 +304,17 @@ func writeAllowPlans(cmd *cobra.Command, client *cubapi.Client, snap *snapshot.S
 	var creations []cub.Creation
 	unchanged := &cubapi.Result{DryRun: ch.DryRun()}
 	results := []*cubapi.Result{unchanged}
+	// The policies that exist and gain sources are each edited by a write of their own, so the
+	// ChangeSet is opened on all of them first.
+	var editing []string
+	for _, p := range plans {
+		if existing := findPolicy(snap, p.Space, p.Unit); existing != nil && len(missingPeers(existing, p.srcWork)) > 0 {
+			editing = append(editing, existing.Origin.UnitID)
+		}
+	}
+	if err := cub.OpenChangeSetFirst(cmd.Context(), client, ch, editing); err != nil {
+		return nil, err
+	}
 	for _, p := range plans {
 		existing := findPolicy(snap, p.Space, p.Unit)
 		if existing == nil {

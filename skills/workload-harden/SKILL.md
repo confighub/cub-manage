@@ -62,6 +62,8 @@ Per-object validators return pass/fail and a human then `kubectl edit`s the clus
 ## Safety
 
 - `harden` fills security-context fields only where the Unit leaves them unset, so a value already chosen (`readOnlyRootFilesystem: false` for a container that writes to its filesystem, `automountServiceAccountToken: true` for one that calls the Kubernetes API) is kept. Where it fills `readOnlyRootFilesystem: true`, `runAsUser: 1000` or `runAsGroup: 3000`, check the diff against what the image needs — the image's `USER`, and the paths it writes — before committing.
+- `harden`, `set-resources` and `set-probes` change every workload in the Unit. When the Unit holds more than the one to change -- a CSI driver's controller Deployment beside its node DaemonSet, say -- pass `--where-resource "ConfigHub.ResourceName = '<namespace>/<name>'"`, and check the diff names only that resource.
+- Check the diff for a container that stays `privileged: true`: `harden` keeps an explicit `privileged: true` but may add `allowPrivilegeEscalation: false`, a combination Kubernetes rejects, so the pods would not start. Stop and tell the user rather than committing.
 - Warn before a `set-resources` whose limits are low enough to risk OOMKill/throttle on a running workload.
 
 ## Stop conditions
