@@ -57,6 +57,14 @@ var (
 			"securityContext.runAsNonRoot", "c.?securityContext.?runAsNonRoot",
 			"'container ' + c.name + ' does not set runAsNonRoot: true, and neither does its pod'")))
 
+	// readOnlyRootFilesystem is a container setting only; a pod has none to
+	// cover its containers. A container that writes to its filesystem mounts an
+	// emptyDir where it writes, or is excepted from the rule.
+	celReadOnlyRootFS = celrule.Result(containerFailures(
+		"has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem",
+		"securityContext.readOnlyRootFilesystem", "c.?securityContext.?readOnlyRootFilesystem",
+		"'container ' + c.name + ' does not set readOnlyRootFilesystem: true'"))
+
 	celTerminationMsg = celrule.Result(containerFailures(
 		"has(c.terminationMessagePolicy) && c.terminationMessagePolicy == 'FallbackToLogsOnError'",
 		"terminationMessagePolicy", "c.?terminationMessagePolicy",
@@ -93,6 +101,7 @@ var Pack = guardrails.Pack{
 	Rules: []guardrails.Rule{
 		{Slug: "workload-has-limits", DisplayName: "Containers set a memory limit", Description: "Warns on a controller whose containers don't all set resources.limits.memory. Fix: `cub manage workload set-resources <space>/<unit>`.", Expression: celHasLimits},
 		{Slug: "workload-runs-nonroot", DisplayName: "Workloads run as non-root", Description: "Warns on a controller not running as non-root (pod or all containers). Fix: `cub manage workload harden <space>/<unit>`.", Expression: celRunsNonRoot},
+		{Slug: "workload-readonly-root-filesystem", DisplayName: "Containers have a read-only root filesystem", Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.", Expression: celReadOnlyRootFS},
 		{Slug: "workload-termination-message-policy", DisplayName: "Containers fall back to logs for termination messages", Description: "Warns on a controller whose containers don't all set terminationMessagePolicy: FallbackToLogsOnError. Fix: the termination-message-policy profile.", Expression: celTerminationMsg},
 		{Slug: "workload-explicit-image-tag", DisplayName: "Images name a version", Description: "Warns on a container image with no image tag or digest, or with the latest image tag. Fix: set a version with `cub function set set-image-reference-by-uri <repository> :<version>`.",
 			Function: "vet-images", Arguments: []api.FunctionArgument{{ParameterName: "image-filter", Value: `{"DenyRegexp": "` + untaggedOrLatestImage + `"}`}}},
@@ -112,12 +121,13 @@ in a policy Space and enforced in each Space that opts into the group:
 
   workload-has-limits                controller containers set a memory limit
   workload-runs-nonroot              controller runs as non-root
+  workload-readonly-root-filesystem  containers have a read-only root filesystem
   workload-termination-message-policy  containers set FallbackToLogsOnError
   workload-explicit-image-tag        images name an image tag other than latest, or a digest
   workload-database-statefulset      database images run in a StatefulSet or DaemonSet
   workload-pdb-coverage              warns while a PDB-coverage finding is annotated
 
-The first five are plain per-resource checks (vet-cel, and vet-images for image
+The first six are plain per-resource checks (vet-cel, and vet-images for image
 tags) — a single Unit answers them, no annotation needed. The last realizes
 annotate-then-validate for the one property vet-cel can't see under
 one-resource-per-Unit: whether a *matching* PDB exists in some other Unit. 'guardrails annotate' writes that finding onto each
