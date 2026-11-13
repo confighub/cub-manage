@@ -18,8 +18,10 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
 | Trigger | Checks |
 | --- | --- |
 | `netpol-no-allow-all-ingress` | ingress rules must name their sources (no empty `from`) |
-| `netpol-no-wide-cidr-egress` | no egress to `0.0.0.0/0` |
-| `netpol-no-metadata-egress` | no egress ipBlock that reaches the cloud metadata IP `169.254.169.254` without excepting it (fix: the `netpol-except-metadata` profile) |
+| `netpol-no-wide-cidr-egress` | no egress to `0.0.0.0/0` or `::/0` |
+| `netpol-no-open-egress` | egress rules name destinations or ports (one with neither allows everything) |
+| `netpol-no-metadata-egress` | no egress that reaches the cloud metadata IP `169.254.169.254`: an ipBlock containing it without excepting it, or a rule with no `to` that allows TCP 80 (fix: the `netpol-except-metadata` profile) |
+| `netpol-egress-allows-dns` | a policy that isolates egress and allows some must allow DNS (UDP 53). Policies add up, so where a separate policy allows DNS, except this one; `netpol findings` (`egress-blocks-dns`) checks the union |
 | `netpol-ingress-coverage` | warns while a `netpol.confighub.com/ingress-coverage` annotation is present: a workload no ingress NetworkPolicy selects |
 
 ## When to use
@@ -51,7 +53,7 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
    cub manage netpol guardrails install --where-space "Slug LIKE 'apptique-%'" --commit
    ```
    Spaces with a pre-existing custom `WhereTrigger` are skipped (not clobbered) and reported; add the `netpol` group to their `WhereTrigger` deliberately (see **triggers-and-applygates**).
-3. **Annotate** the workloads no ingress policy selects, so the coverage Trigger flags them (dry-run by default):
+3. **Annotate** the workloads no ingress policy selects, so the coverage Trigger flags them (dry-run by default). Clusters whose Target says nothing enforces NetworkPolicy are skipped, since no policy can cover a workload there:
    ```bash
    cub manage netpol guardrails annotate --commit --change-desc "Flag workloads no ingress policy selects. User prompt: ..."
    ```

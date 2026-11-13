@@ -15,6 +15,7 @@ import (
 
 	"github.com/confighub/sdk/core/cubapi"
 
+	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/netpol"
 )
 
@@ -74,7 +75,8 @@ var loader = cubapi.SnapshotLoader[netpol.FleetResource]{
 }
 
 // Load fetches and assembles the fleet snapshot, scoped by a single ConfigHub
-// Unit `where` predicate (empty = everything the user can view).
+// Unit `where` predicate (empty = everything the user can view). Each cluster's
+// Target says whether it enforces NetworkPolicy.
 func Load(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, error) {
 	snap, err := loader.Load(ctx, c, where)
 	if err != nil {
@@ -87,8 +89,18 @@ func Load(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, error
 			forAnalysis = append(forAnalysis, r)
 		}
 	}
+	clusters := netpol.BuildFleet(forAnalysis)
+	factsBySlug, err := cub.TargetFactsBySlug(ctx, c, snap.Units, func(slug string) bool { return clusters[slug] != nil })
+	if err != nil {
+		return nil, err
+	}
+	for name, cl := range clusters {
+		if facts, ok := factsBySlug[name]; ok && name != ClusterNone {
+			cl.Enforcement = netpol.EnforcementFromFacts(facts)
+		}
+	}
 	return &Snapshot{
-		Clusters:  netpol.BuildFleet(forAnalysis),
+		Clusters:  clusters,
 		Resources: snap.Resources,
 		Units:     snap.Units,
 		Filter:    snap.Filter,

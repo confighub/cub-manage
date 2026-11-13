@@ -17,11 +17,14 @@ These are set-aware checks a per-resource validator can't make: whether a namesp
 
 | Analyzer | Severity | What it flags |
 | --- | --- | --- |
+| `not-enforced` | high | the cluster's Target says nothing enforces NetworkPolicy (`Cluster.NetworkPolicyEnforcer` is empty), so its policies have no effect. Listed first; the other findings describe the policies as if they were enforced |
 | `missing-default-deny-ingress` | high | a namespace with workloads but no default-deny ingress |
 | `uncovered-ingress` | high | a workload selected by no ingress NetworkPolicy |
-| `allow-all` | medium | a policy rule with an empty `from`/`to` (admits all peers) |
-| `metadata-egress` | high | an egress ipBlock that admits the cloud-metadata IP 169.254.169.254 |
+| `egress-blocks-dns` | high | an egress-isolated workload that no policy selecting it lets reach DNS (UDP 53), so it cannot resolve names once policy is enforced |
+| `allow-all` | medium | an ingress rule with an empty `from`, or an egress rule with neither `to` nor ports (an egress rule to anywhere on named ports is a deliberate choice, and is not flagged) |
+| `metadata-egress` | high | an egress rule that reaches the cloud-metadata IP 169.254.169.254: an ipBlock containing it without excepting it, or a rule with no `to` that allows TCP 80 |
 | `ingress-egress-asymmetry` | medium | one side allows a flow the other side silently drops |
+| `selects-nothing` | low | a policy whose podSelector, or a same-namespace peer's, selects no workload ConfigHub has: most often a renamed or misspelled label. Pods made outside ConfigHub, such as a controller's per-task pods, show up here too |
 
 ## When to use
 
@@ -58,6 +61,9 @@ Report the findings grouped by severity, each with its namespace/resource and me
 - `metadata-egress` → **netpol-fix**: the `netpol-except-metadata` profile (`cub manage profile apply netpol-except-metadata <space>/<unit>`; fleet-wide, **netpol-fleet** `fleet-edit --profile netpol-except-metadata`).
 - `allow-all` → **netpol-fix** (replace the empty `from`/`to` with explicit peers) — or generate them from Links via `allow-from-links`.
 - `ingress-egress-asymmetry` → add the missing side with **netpol-fix** `allow`.
+- `egress-blocks-dns` → the `netpol-allow-dns` profile on the policy that isolates egress (**netpol-fix**).
+- `selects-nothing` → compare the selector with the labels of the workload it was meant for, and fix whichever is wrong.
+- `not-enforced` → nothing to fix in the policies. Say that the cluster's policies have no effect until a network plugin enforces them, and that the other findings are what would matter then.
 
 To make findings **enforced** (advisory ValidationWarnings) rather than just reported, see **netpol-guardrails**.
 

@@ -333,9 +333,17 @@ and allowed whatever any of them allows.
 
 Analyses: `coverage` (per namespace: is there a default-deny; per workload: is it selected for
 ingress and egress), `who-can-reach` and `reachable-from`. Findings: a namespace with no
-default-deny ingress, a workload no ingress policy selects, an allow-all policy, egress that admits
-the cloud metadata address `169.254.169.254`, and an egress allow with no matching ingress allow
-at the destination.
+default-deny ingress, a workload no ingress policy selects, an egress-isolated workload no policy
+lets reach DNS, an allow-all rule, egress that admits the cloud metadata address `169.254.169.254`,
+an egress allow with no matching ingress allow at the destination, and a policy or peer whose
+selector matches no workload.
+
+Whether a cluster enforces NetworkPolicy at all is its Target's `Cluster.NetworkPolicyEnforcer`
+fact, which `cub k8s collect` and the bots that run in the cluster collect: a network plugin's
+name, empty for none, absent when it could not be told. `snapshot` and `coverage` show it, and
+`findings` leads with a `not-enforced` finding for a cluster that enforces none. Such a cluster is
+still analyzed as if it did, so that its policies are right by the time it does, but `guardrails
+annotate` skips it, since no policy can cover a workload there.
 
 Fixes: `default-deny` for a namespace, or for every namespace in scope that lacks one (with
 `--egress`, also denying egress but allowing DNS, since a bare egress default-deny breaks name

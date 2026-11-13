@@ -175,29 +175,65 @@ func (r NetworkPolicyRule) admitsAll() bool {
 	return false
 }
 
-// AllowsDNSEgress reports whether any egress rule already permits DNS (port 53).
-func (np *NetworkPolicyEntity) AllowsDNSEgress() bool {
-	for _, rule := range np.Egress {
-		for _, p := range rule.Ports {
-			if p.Port == "53" {
-				return true
-			}
-		}
+// allows reports whether the port entry admits traffic to port on protocol. An
+// entry with no port admits every port of its protocol. A named port matches
+// only a pod's container port of that name, which this cannot see, so it admits
+// no numbered port.
+func (p NetworkPolicyPort) allows(protocol string, port int) bool {
+	if !strings.EqualFold(p.Protocol, protocol) {
+		return false
 	}
-	return false
+	if p.Port == "" {
+		return true
+	}
+	n, err := strconv.Atoi(p.Port)
+	if err != nil {
+		return false
+	}
+	if p.EndPort != 0 {
+		return n <= port && port <= p.EndPort
+	}
+	return n == port
 }
 
-// ExposesMetadataEgress reports whether any egress ipBlock admits the cloud
-// metadata IP without excepting it.
-func (np *NetworkPolicyEntity) ExposesMetadataEgress() bool {
-	for _, rule := range np.Egress {
-		for _, peer := range rule.Peers {
-			if peer.IPBlock != nil && IPBlockExposesMetadata(peer.IPBlock) {
-				return true
-			}
-		}
+// allowsPort reports whether the rule admits traffic to port on protocol: it
+// names no ports, or one that admits it.
+func (r NetworkPolicyRule) allowsPort(protocol string, port int) bool {
+	return len(r.Ports) == 0 || slices.ContainsFunc(r.Ports, func(p NetworkPolicyPort) bool { return p.allows(protocol, port) })
+}
+
+// dnsPortName is the name the cluster DNS's pods give their UDP port 53.
+const dnsPortName = "dns"
+
+// allowsDNSPort reports whether the rule admits DNS: UDP port 53, or the port
+// the cluster DNS names "dns". A port with no protocol is TCP, which most
+// lookups do not use.
+func (r NetworkPolicyRule) allowsDNSPort() bool {
+	return r.allowsPort("UDP", 53) || slices.ContainsFunc(r.Ports, func(p NetworkPolicyPort) bool {
+		return p.Port == dnsPortName && strings.EqualFold(p.Protocol, "UDP")
+	})
+}
+
+// openEgress reports whether an egress rule allows every destination on every
+// port: it names neither. A rule naming ports, such as one allowing HTTPS to
+// anywhere, is a deliberate choice of what to allow, and is not.
+func (r NetworkPolicyRule) openEgress() bool {
+	return len(r.Peers) == 0 && len(r.Ports) == 0
+}
+
+// metadataPort is the port the cloud instance-metadata service listens on.
+const metadataPort = 80
+
+// reachesMetadata reports whether an egress rule admits the cloud metadata IP:
+// it names no destinations and admits its HTTP port, or one of its ipBlocks
+// contains the IP without excepting it.
+func (r NetworkPolicyRule) reachesMetadata() bool {
+	if len(r.Peers) == 0 {
+		return r.allowsPort("TCP", metadataPort)
 	}
-	return false
+	return slices.ContainsFunc(r.Peers, func(p NetworkPolicyPeer) bool {
+		return p.IPBlock != nil && IPBlockExposesMetadata(p.IPBlock)
+	})
 }
 
 // WorkloadEntity is a parsed pod-bearing resource (Deployment, StatefulSet,
@@ -246,9 +282,49 @@ type ServiceEntity struct {
 	Origin    ResourceOrigin    `json:"origin"`
 }
 
+// EnforcerFact is the Target fact naming what enforces NetworkPolicy on the
+// cluster: a network plugin, or empty for none. It is collected from the
+// cluster by `cub k8s collect` and the bots that run in it, and absent when
+// that could not be told.
+const EnforcerFact = "Cluster.NetworkPolicyEnforcer"
+
+// Enforcement is what a cluster's Target says enforces NetworkPolicy on it. A
+// NetworkPolicy is accepted by every cluster, and has an effect only where a
+// network plugin implements it.
+type Enforcement struct {
+	// Known is false when the cluster has no Target, or its Target no
+	// EnforcerFact.
+	Known bool `json:"known"`
+	// Enforcer names the network plugin enforcing NetworkPolicy, empty when
+	// nothing does.
+	Enforcer string `json:"enforcer,omitempty"`
+}
+
+// EnforcementFromFacts reads a Target's facts.
+func EnforcementFromFacts(facts map[string]string) Enforcement {
+	enforcer, known := facts[EnforcerFact]
+	return Enforcement{Known: known, Enforcer: enforcer}
+}
+
+// NotEnforced reports whether the cluster is known to enforce no NetworkPolicy.
+func (e Enforcement) NotEnforced() bool { return e.Known && e.Enforcer == "" }
+
+// String is the enforcement as a table shows it: the enforcer, "no", or
+// "unknown".
+func (e Enforcement) String() string {
+	switch {
+	case !e.Known:
+		return "unknown"
+	case e.Enforcer == "":
+		return "no"
+	}
+	return e.Enforcer
+}
+
 // ClusterNetpol holds the NetworkPolicy-relevant entities of one cluster.
 type ClusterNetpol struct {
 	Cluster         string                 `json:"cluster"`
+	Enforcement     Enforcement            `json:"enforcement"`
 	NetworkPolicies []*NetworkPolicyEntity `json:"networkPolicies"`
 	Workloads       []*WorkloadEntity      `json:"workloads"`
 	Namespaces      []*NamespaceEntity     `json:"namespaces"`

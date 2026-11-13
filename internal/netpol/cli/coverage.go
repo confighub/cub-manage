@@ -5,6 +5,8 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -20,8 +22,11 @@ import (
 )
 
 type coverageReport struct {
-	Namespaces []netpol.NamespaceCoverage `json:"namespaces"`
-	Totals     struct {
+	// Enforcement is, per cluster reported on, whether its Target says it
+	// enforces NetworkPolicy. Coverage is computed as if it did.
+	Enforcement map[string]netpol.Enforcement `json:"enforcement"`
+	Namespaces  []netpol.NamespaceCoverage    `json:"namespaces"`
+	Totals      struct {
 		Namespaces         int `json:"namespaces"`
 		WithoutDefaultDeny int `json:"namespacesWithoutDefaultDenyIngress"`
 		Workloads          int `json:"workloads"`
@@ -79,7 +84,7 @@ Filter with --cluster, --namespace, and --direction (ingress|egress). With
 }
 
 func buildCoverageReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter, direction string) coverageReport {
-	var report coverageReport
+	report := coverageReport{Enforcement: map[string]netpol.Enforcement{}}
 	clusters := make([]string, 0, len(snap.Clusters))
 	for name := range snap.Clusters {
 		clusters = append(clusters, name)
@@ -89,6 +94,7 @@ func buildCoverageReport(snap *snapshot.Snapshot, clusterFilter, namespaceFilter
 		if clusterFilter != "" && name != clusterFilter {
 			continue
 		}
+		report.Enforcement[name] = snap.Clusters[name].Enforcement
 		nss, _ := snap.Clusters[name].Coverage()
 		for _, nc := range nss {
 			if namespaceFilter != "" && nc.Namespace != namespaceFilter {
@@ -127,6 +133,12 @@ func printCoverageTable(cmd *cobra.Command, r coverageReport, direction string) 
 		"\n%d namespaces (%d without default-deny ingress), %d workloads, %d uncovered on ingress, %d uncovered on egress",
 		r.Totals.Namespaces, r.Totals.WithoutDefaultDeny, r.Totals.Workloads,
 		r.Totals.UncoveredIngress, r.Totals.UncoveredEgress))
+	for _, name := range slices.Sorted(maps.Keys(r.Enforcement)) {
+		if r.Enforcement[name].NotEnforced() {
+			kit.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("  %s does not enforce NetworkPolicy (its Target's %s fact is empty): coverage is as it would be if it did",
+				name, netpol.EnforcerFact))
+		}
+	}
 
 	// List the uncovered workloads inline so the table is actionable.
 	for _, nc := range r.Namespaces {
