@@ -3,7 +3,38 @@
 
 package cli
 
-import "github.com/confighub/sdk/managerkit/guardrails"
+import (
+	"strings"
+
+	"github.com/confighub/sdk/core/function/api"
+	"github.com/confighub/sdk/managerkit/guardrails"
+
+	"github.com/confighub/cub-manage/internal/celrule"
+)
+
+// servedTypeFacts are the Target facts listing the resource types the Target's cluster serves, as
+// group/version/Kind, comma-separated: its built-in types and its CRDs', each by scope.
+var servedTypeFacts = []string{
+	"Cluster.NamespaceScopedResourceTypes", "Cluster.ClusterScopedResourceTypes",
+	"Cluster.NamespaceScopedCRDs", "Cluster.ClusterScopedCRDs",
+}
+
+// celServedAPI fails a resource whose apiVersion and kind are not among the types the Target's
+// cluster serves. A Target whose facts were never collected says nothing about what its cluster
+// serves, so the resource passes.
+var celServedAPI = func() string {
+	facts := "functionContext.?TargetFacts.orValue({})"
+	served := make([]string, len(servedTypeFacts))
+	for i, fact := range servedTypeFacts {
+		served[i] = facts + "[?" + celrule.Lit(fact) + "].orValue('')"
+	}
+	resourceType := "r.apiVersion + '/' + r.kind"
+	return celrule.When(
+		celrule.Lit(servedTypeFacts[0])+" in "+facts+" && has(r.apiVersion) && has(r.kind) && "+
+			"!(',' + "+strings.Join(served, " + ',' + ")+" + ',').contains(',' + "+resourceType+" + ',')",
+		"["+celrule.Failure(celrule.Lit("apiVersion"), celrule.Some("r.apiVersion"),
+			"'the cluster of the Target does not serve ' + "+resourceType+" + ': the version was removed, or its CRD is not installed'")+"]")
+}()
 
 // basicPack is the tool-level guardrail group: rules about every resource or
 // every Unit rather than any group's kinds, which a Space opts into on its own.
@@ -38,5 +69,13 @@ var basicPack = guardrails.Pack{
 		{Control: "CH-0107", Name: "vet-immutable", Rule: "vet-immutable", DisplayName: "Immutable fields are unchanged",
 			Description: "Fails a Unit released to a Target that changes a field Kubernetes does not let change once applied, such as a Deployment's selector, compared with what was last applied. Fix: restore the field, or replace the resource rather than updating it.",
 			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityHigh, Function: "vet-immutable", AppliedTo: guardrails.AppliedToTarget},
+		{Control: "CH-0110", Name: "served-api", Rule: "served-api", DisplayName: "The Target cluster serves each API version",
+			Description: "Fails a Unit released to a Target whose cluster does not serve a resource's apiVersion and kind, as the Target's Cluster facts list them: the version was removed, as extensions/v1beta1 Ingress was, or the resource's CRD is not installed. A Target without the facts passes; `cub k8s collect` records them. Fix: move the resource to a version the cluster serves, or install its CRD first.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, Failures: celServedAPI, AppliedTo: guardrails.AppliedToTarget,
+			Corresponds: []string{"KL:no-extensions-v1beta", "KY:check-deprecated-apis", "GK:verifydeprecatedapi"}},
+		{Control: "CH-0111", Name: "deprecated-api", Rule: "deprecated-api", DisplayName: "No deprecated API versions",
+			Description: "Warns on a resource whose type, or the version of it, is deprecated, with the warning Kubernetes gives for it: a built-in type ConfigHub's resource type specs declare deprecated, such as v1/ComponentStatus, or a CRD version its CRD marks deprecated, for the CRDs in those specs. Fix: move the resource to the replacement the warning names.",
+			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityMedium,
+			Function: "vet-correctness", Arguments: []api.FunctionArgument{{ParameterName: "check", Value: "deprecated-api"}}},
 	},
 }

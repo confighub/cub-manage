@@ -68,7 +68,7 @@ var Pack = guardrails.Pack{
 			Description: "Warns on a controller that tolerates a taint but has no nodeSelector or required node affinity (may schedule onto general nodes). Fix: `cub manage scheduling set-node-selector` / `set-node-affinity`, or a placement profile.",
 			Failures:    celTolerationNeedsPlacement},
 		{Control: "CH-1102", Name: "scheduling-spread-selects-own-pods", Rule: "scheduling-spread-selects-own-pods",
-			DisplayName: "Topology spread selects the workload's own Pods",
+			DisplayName: "Topology spread selects the workload Pods",
 			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, ResourceTypes: celrule.Controllers,
 			Description: "Warns on a controller whose topology spread constraint has no labelSelector, or one its own pod template's labels do not match, so its Pods never count toward the skew. Fix: `cub manage scheduling set-topology-spread`, which selects the workload's own Pods.",
 			Failures:    celSpreadSelectsOwnPods},

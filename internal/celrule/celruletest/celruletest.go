@@ -39,6 +39,13 @@ type Result struct {
 // Eval evaluates expression on the resource in resourceYAML.
 func Eval(t *testing.T, expression, resourceYAML string) Result {
 	t.Helper()
+	return EvalIn(t, map[string]any{}, expression, resourceYAML)
+}
+
+// EvalIn evaluates expression on the resource in resourceYAML with functionContext, the
+// FunctionContext as vet-cel sees it: a map of its JSON fields, such as TargetFacts.
+func EvalIn(t *testing.T, functionContext map[string]any, expression, resourceYAML string) Result {
+	t.Helper()
 	env, err := cel.NewEnv(
 		cel.DefaultUTCTimeZone(true),
 		cel.CrossTypeNumericComparisons(true),
@@ -68,7 +75,7 @@ func Eval(t *testing.T, expression, resourceYAML string) Result {
 		t.Fatalf("resource: %v", err)
 	}
 	val, _, err := program.Eval(map[string]any{
-		"r": resource, "object": resource, "params": map[string]any{}, "functionContext": map[string]any{},
+		"r": resource, "object": resource, "params": map[string]any{}, "functionContext": functionContext,
 	})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -167,7 +174,13 @@ func ExpectResource(t *testing.T, result Result, name, resourceType string) {
 // that each failure names the check.
 func EvalCheck(t *testing.T, check guardrails.Check, resourceYAML string) Result {
 	t.Helper()
-	result := Eval(t, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
+	return EvalCheckIn(t, map[string]any{}, check, resourceYAML)
+}
+
+// EvalCheckIn is EvalCheck with functionContext, as EvalIn takes it.
+func EvalCheckIn(t *testing.T, functionContext map[string]any, check guardrails.Check, resourceYAML string) Result {
+	t.Helper()
+	result := EvalIn(t, functionContext, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
 	for _, a := range result.FailedAttributes {
 		if !reflect.DeepEqual(a.Checks, []string{check.Name}) {
 			t.Errorf("the failure at %s names checks %q, want %s", a.Path, a.Checks, check.Name)

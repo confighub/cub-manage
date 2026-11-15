@@ -257,7 +257,9 @@ $ cub manage workload fleet-edit --profile resources-medium --environment dev --
 (memory limits, run-as-non-root, a read-only root filesystem,
 terminationMessagePolicy, database images
 in a StatefulSet or DaemonSet rather than a Deployment), a `vet-images`
-Trigger that warns on an image with no image tag or the `latest` image tag, plus an
+Trigger that warns on an image with no image tag or the `latest` image tag, two
+`vet-pod-security-standard` Triggers holding pods to the baseline and restricted
+Pod Security Standards check by check, plus an
 annotate-then-validate Trigger for PDB coverage — labeled `Pack: workload`,
 and adds the `workload` group to each in-scope Space's `WhereTrigger`. It's
 dry-run by default and **conservative**: it skips Spaces that already select
@@ -266,12 +268,12 @@ Triggers their own way rather than clobbering them.
 ```console
 $ cub manage workload guardrails install -o table
 Plan (dry-run) — guardrail group "workload" in policy Space "common"
-  triggers: workload-has-limits, workload-runs-nonroot, workload-readonly-root-filesystem, workload-termination-message-policy, workload-explicit-image-tag, workload-database-statefulset, workload-pdb-coverage
+  triggers: workload-pod-security-baseline, workload-pod-security-restricted, workload-has-limits, workload-runs-nonroot, workload-readonly-root-filesystem, workload-termination-message-policy, workload-explicit-image-tag, workload-database-statefulset, workload-pdb-coverage
   to wire: none
   already wired (1): platform-dev
 ```
 
-Apply with `--commit`. The six per-resource rules fire on their own; the
+Apply with `--commit`. The per-resource rules fire on their own; the
 cross-Unit PDB-coverage rule is fed by `guardrails annotate`, which stamps the
 finding onto each uncovered multi-replica workload:
 
