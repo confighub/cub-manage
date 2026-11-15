@@ -526,6 +526,8 @@ own, rather than part of the pack of a group a Space opts into for other reasons
 | `no-link-findings`       | Links find everything they name           | `vet-no-link-findings`: what its Links' resolves could not do |
 | `vet-no-placeholders`    | No placeholders left to fill              | `vet-placeholders`, on Units released to a Target            |
 | `vet-immutable`          | Immutable fields are unchanged            | `vet-immutable`, on Units released to a Target               |
+| `served-api`             | The Target cluster serves each API version | `vet-cel`, on Units released to a Target: each resource's `apiVersion` and `kind` is among the types the Target's `Cluster.*ResourceTypes` and `Cluster.*CRDs` facts list; a Target without them passes |
+| `deprecated-api`         | No deprecated API versions                | `vet-correctness` `check=deprecated-api`: a type, or a version of one, the resource type specs declare deprecated |
 
 The slugs are those of the Triggers these rules were first written as, by hand, so installing the
 group where those Triggers exist updates them in place, keeping whether each warns or blocks,

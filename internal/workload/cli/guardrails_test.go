@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -149,4 +150,34 @@ metadata:
 
 func TestUnrelatedResourcesPass(t *testing.T) {
 	celruletest.UnrelatedResourcesPass(t, Pack)
+}
+
+// The Pod Security checks are the 17 of the standard, 11 in the baseline rule and 6 in the
+// restricted one, each its own ID; run-as-non-root is left out unless asked for, since
+// workload-runs-nonroot checks the same.
+func TestPodSecurityChecks(t *testing.T) {
+	rules, ids := map[string]int{}, map[string]bool{}
+	for _, check := range podSecurityChecks {
+		if check.DisplayName == "" || check.Description == "" {
+			t.Errorf("check %s has no DisplayName or Description", check.Name)
+		}
+		if ids[check.PodSecurityCheck] {
+			t.Errorf("Pod Security check %s is in two checks", check.PodSecurityCheck)
+		}
+		ids[check.PodSecurityCheck] = true
+		rules[check.Rule+"/"+check.Level+"/"+check.Priority]++
+		if check.Optional != (check.Name == "run-as-non-root") {
+			t.Errorf("check %s: Optional = %v", check.Name, check.Optional)
+		}
+		if !slices.Contains(check.ResourceTypes, "v1/Pod") || !slices.Contains(check.ResourceTypes, "batch/v1/CronJob") {
+			t.Errorf("check %s selects %v, not every type with a pod spec", check.Name, check.ResourceTypes)
+		}
+	}
+	want := map[string]int{
+		podSecurityBaselineRule + "/baseline/" + guardrails.PriorityHigh:       11,
+		podSecurityRestrictedRule + "/restricted/" + guardrails.PriorityMedium: 6,
+	}
+	if !maps.Equal(rules, want) {
+		t.Errorf("rules = %v, want %v", rules, want)
+	}
 }

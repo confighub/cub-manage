@@ -10,6 +10,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -92,8 +93,9 @@ var celDatabaseStateful = celrule.When(
 const untaggedOrLatestImage = `(:latest$)|^([^/]+/)*[^/:@]+$`
 
 var Pack = guardrails.Pack{
-	Group: "workload",
-	Checks: []guardrails.Check{
+	Group:    "workload",
+	RuleInfo: podSecurityRules,
+	Checks: slices.Concat(podSecurityChecks, []guardrails.Check{
 		{Control: "CH-0320", Name: "workload-readonly-root-filesystem", Rule: "workload-readonly-root-filesystem",
 			DisplayName: "Containers have a read-only root filesystem",
 			Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.",
@@ -135,7 +137,7 @@ var Pack = guardrails.Pack{
 			Function: "vet-images", Arguments: []api.FunctionArgument{{ParameterName: "image-filter", Value: `{"DenyRegexp": "` + untaggedOrLatestImage + `"}`}},
 			Fix:         "cub function set set-image-reference-by-uri <repository> :<version>",
 			Corresponds: []string{"KL:latest-tag", "KY:disallow-latest-tag", "GK:disallowedtags"}},
-	},
+	}),
 }
 
 func preflight(ctx context.Context) (*cubapi.Client, error) { return cub.Preflight(ctx) }
@@ -154,12 +156,22 @@ in a policy Space and enforced in each Space that opts into the group:
   workload-explicit-image-tag        images name an image tag other than latest, or a digest
   workload-database-statefulset      database images run in a StatefulSet or DaemonSet
   workload-pdb-coverage              warns while a PDB-coverage finding is annotated
+  workload-pod-security-baseline     pods meet the baseline Pod Security Standard
+  workload-pod-security-restricted   pods meet what the restricted standard adds
 
 The first six are plain per-resource checks (vet-cel, and vet-images for image
-tags) — a single Unit answers them, no annotation needed. The last realizes
+tags) — a single Unit answers them, no annotation needed. workload-pdb-coverage realizes
 annotate-then-validate for the one property vet-cel can't see under
 one-resource-per-Unit: whether a *matching* PDB exists in some other Unit. 'guardrails annotate' writes that finding onto each
 uncovered workload Unit and this Trigger turns it into a warning.
+
+The Pod Security rules run vet-pod-security-standard on Pods and every resource
+with a pod template. A check is named by its Pod Security Standards ID in lowercase
+words (privileged, host-path-volumes, run-as-user, ...), and each finding by the ID
+itself. Stage one check ahead of the rest of its level with
+'cub manage guardrails update <rule> --separate <check>'. The restricted rule
+leaves out run-as-non-root, which workload-runs-nonroot checks; add it with
+'guardrails install --check run-as-non-root'.
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:
