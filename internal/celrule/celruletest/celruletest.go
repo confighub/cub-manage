@@ -9,6 +9,7 @@ package celruletest
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/confighub/sdk/managerkit/guardrails"
@@ -24,6 +25,8 @@ type Attribute struct {
 	ResourceType string
 	Path         string
 	Value        any
+	// Checks are the Identifiers of the attribute's Issues: the checks it fails.
+	Checks []string
 }
 
 // Result is what vet-cel reports for one resource.
@@ -106,12 +109,19 @@ func readResult(t *testing.T, v any) Result {
 		if v, present := am["Value"]; present && v == nil {
 			t.Errorf("the failed attribute at %v has a null Value; leave a missing value out", am["Path"])
 		}
-		r.FailedAttributes = append(r.FailedAttributes, Attribute{
+		attribute := Attribute{
 			ResourceName: fmt.Sprintf("%v", am["ResourceName"]),
 			ResourceType: fmt.Sprintf("%v", am["ResourceType"]),
 			Path:         fmt.Sprintf("%v", am["Path"]),
 			Value:        am["Value"],
-		})
+		}
+		issues, _ := am["Issues"].([]any)
+		for _, issue := range issues {
+			if im, ok := issue.(map[string]any); ok {
+				attribute.Checks = append(attribute.Checks, fmt.Sprintf("%v", im["Identifier"]))
+			}
+		}
+		r.FailedAttributes = append(r.FailedAttributes, attribute)
 	}
 	return r
 }
@@ -153,24 +163,56 @@ func ExpectResource(t *testing.T, result Result, name, resourceType string) {
 	}
 }
 
-// unrelated are resources none of the rules is about, with as little in them as
-// a resource can have.
-var unrelated = []string{
-	"apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: shop\n",
-	"apiVersion: v1\nkind: Secret\nmetadata:\n  name: token\n  annotations:\n",
+// EvalCheck evaluates check on the resource in resourceYAML as its rule runs it, and checks
+// that each failure names the check.
+func EvalCheck(t *testing.T, check guardrails.Check, resourceYAML string) Result {
+	t.Helper()
+	result := Eval(t, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
+	for _, a := range result.FailedAttributes {
+		if !reflect.DeepEqual(a.Checks, []string{check.Name}) {
+			t.Errorf("the failure at %s names checks %q, want %s", a.Path, a.Checks, check.Name)
+		}
+	}
+	return result
 }
 
-// UnrelatedResourcesPass checks that each vet-cel rule of rules passes a
-// resource it is not about, without an error: a rule reads fields only of the
-// resources it checks.
-func UnrelatedResourcesPass(t *testing.T, rules []guardrails.Rule) {
+// Check is the check of pack named name.
+func Check(t *testing.T, pack guardrails.Pack, name string) guardrails.Check {
 	t.Helper()
-	for _, rule := range rules {
-		if rule.Function != "" {
+	for _, c := range pack.Checks {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("the %s pack has no check %s", pack.Group, name)
+	return guardrails.Check{}
+}
+
+// unrelated are resources none of the checks is about, with as little in them as
+// a resource can have, and their types.
+var unrelated = map[string]string{
+	"v1/ConfigMap": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: shop\n",
+	"v1/Secret":    "apiVersion: v1\nkind: Secret\nmetadata:\n  name: token\n  annotations:\n",
+}
+
+// UnrelatedResourcesPass checks that the pack's checks are installable, and that each cel check
+// of the pack leaves alone a resource it is not about: its rule does not select the resource's
+// type, or, for a check of every type, it passes the resource without an error.
+func UnrelatedResourcesPass(t *testing.T, pack guardrails.Pack) {
+	t.Helper()
+	if err := pack.Validate(); err != nil {
+		t.Fatalf("the %s pack: %v", pack.Group, err)
+	}
+	for _, check := range pack.Checks {
+		if check.Engine != guardrails.EngineCEL {
 			continue
 		}
-		for _, doc := range unrelated {
-			Expect(t, Eval(t, rule.Expression, doc))
+		for resourceType, doc := range unrelated {
+			if len(check.ResourceTypes) == 0 {
+				Expect(t, EvalCheck(t, check, doc))
+			} else if slices.Contains(check.ResourceTypes, resourceType) {
+				t.Errorf("check %s selects %s", check.Name, resourceType)
+			}
 		}
 	}
 }

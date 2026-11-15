@@ -23,20 +23,28 @@ import (
 
 const podSecurityEnforceLabel = "pod-security.kubernetes.io/enforce"
 
-// Guardrail CEL expressions, evaluated per resource (r aliases the resource).
+// The checks' failures, evaluated on each resource of the types their rules
+// select (r is the resource).
 var (
 	// A Namespace must carry the pod-security enforce label.
-	celHasPodSecurity = celrule.Result(celrule.When(
-		"r.kind == 'Namespace' && !(has(r.metadata.labels) && '"+podSecurityEnforceLabel+"' in r.metadata.labels)",
+	celHasPodSecurity = celrule.When(
+		"!(has(r.metadata.labels) && '"+podSecurityEnforceLabel+"' in r.metadata.labels)",
 		"["+celrule.Failure(celrule.Lit(celrule.MapKeyPath("metadata.labels", podSecurityEnforceLabel)), celrule.None,
-			celrule.Lit("the Namespace has no "+podSecurityEnforceLabel+" label"))+"]"))
+			celrule.Lit("the Namespace has no "+podSecurityEnforceLabel+" label"))+"]")
 )
 
 var Pack = guardrails.Pack{
 	Group: "namespace",
-	Rules: []guardrails.Rule{
-		{Slug: "namespace-has-pod-security", DisplayName: "Namespaces set a Pod Security level", Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace pod-security set --namespace <ns>`.", Expression: celHasPodSecurity},
-		{Slug: "namespace-pod-security-standard", DisplayName: "Workloads meet their Pod Security level", Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace pod-security set` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.", Function: VetPodSecurityFunction},
+	Checks: []guardrails.Check{
+		{Control: "CH-1001", Name: "namespace-has-pod-security", Rule: "namespace-has-pod-security", DisplayName: "Namespaces set a Pod Security level",
+			Description: "Warns on a Namespace with no pod-security.kubernetes.io/enforce label. Fix: `cub manage namespace pod-security set --namespace <ns>`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium,
+			ResourceTypes: []string{"v1/Namespace"}, Failures: celHasPodSecurity,
+			Fix: "cub manage namespace pod-security set --namespace <ns>"},
+		{Control: "CH-1002", Name: "namespace-pod-security-standard", Rule: "namespace-pod-security-standard", DisplayName: "Workloads meet their Pod Security level",
+			Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace pod-security set` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.",
+			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityHigh, Function: VetPodSecurityFunction,
+			Fix: "cub manage workload harden"},
 	},
 }
 

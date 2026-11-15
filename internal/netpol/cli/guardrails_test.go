@@ -33,13 +33,13 @@ spec:
 
 // The NetworkPolicy rules name the rule and the peer that fail, by index.
 func TestNetpolRulesNameTheFailingRule(t *testing.T) {
-	result := celruletest.Eval(t, celNoAllowAllIngress, policy)
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-allow-all-ingress"), policy)
 	celruletest.Expect(t, result, "spec.ingress.1.from")
 	celruletest.ExpectResource(t, result, "shop/web", "networking.k8s.io/v1/NetworkPolicy")
 
-	celruletest.Expect(t, celruletest.Eval(t, celNoWideCidrEgress, policy), "spec.egress.1.to.1.ipBlock.cidr")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-wide-cidr-egress"), policy), "spec.egress.1.to.1.ipBlock.cidr")
 	// 0.0.0.0/0 contains the metadata IP, and nothing excepts it.
-	celruletest.Expect(t, celruletest.Eval(t, celNoMetadataEgress, policy), "spec.egress.1.to.1.ipBlock.except")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-metadata-egress"), policy), "spec.egress.1.to.1.ipBlock.except")
 
 	excepted := `apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -53,16 +53,15 @@ spec:
             cidr: 0.0.0.0/0
             except: ["169.254.169.254/32"]
 `
-	celruletest.Expect(t, celruletest.Eval(t, celNoMetadataEgress, excepted))
-	celruletest.Expect(t, celruletest.Eval(t, celNoAllowAllIngress, excepted))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-metadata-egress"), excepted))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-allow-all-ingress"), excepted))
 
 	annotated := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n    netpol.confighub.com/ingress-coverage: uncovered\n"
-	celruletest.Expect(t, celruletest.Eval(t, celNoCoverageFinding, annotated), "metadata.annotations.netpol~1confighub~1com/ingress-coverage")
-	celruletest.Expect(t, celruletest.Eval(t, celNoWideCidrEgress, annotated))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-ingress-coverage"), annotated), "metadata.annotations.netpol~1confighub~1com/ingress-coverage")
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {
-	celruletest.UnrelatedResourcesPass(t, Pack.Rules)
+	celruletest.UnrelatedResourcesPass(t, Pack)
 }
 
 const egressPolicy = `apiVersion: networking.k8s.io/v1
@@ -91,14 +90,14 @@ spec:
 
 func TestOpenEgress(t *testing.T) {
 	// Rule 2 names nothing; rule 0 and 1 name ports, so they say what they allow.
-	celruletest.Expect(t, celruletest.Eval(t, celNoOpenEgress, egressPolicy), "spec.egress.2.to")
-	celruletest.Expect(t, celruletest.Eval(t, celNoWideCidrEgress, egressPolicy), "spec.egress.3.to.0.ipBlock.cidr")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-open-egress"), egressPolicy), "spec.egress.2.to")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-wide-cidr-egress"), egressPolicy), "spec.egress.3.to.0.ipBlock.cidr")
 }
 
 func TestMetadataThroughOpenEgress(t *testing.T) {
 	// Rules 2 (every port) and 4 (TCP 80) name no destinations and reach the
 	// metadata service; 0 (UDP 53) and 1 (TCP 443) do not.
-	celruletest.Expect(t, celruletest.Eval(t, celNoMetadataEgress, egressPolicy), "spec.egress.2.to", "spec.egress.4.to")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-metadata-egress"), egressPolicy), "spec.egress.2.to", "spec.egress.4.to")
 }
 
 func TestEgressAllowsDNS(t *testing.T) {
@@ -126,7 +125,7 @@ func TestEgressAllowsDNS(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			result := celruletest.Eval(t, celEgressAllowsDNS, c.policy)
+			result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-egress-allows-dns"), c.policy)
 			if c.fails {
 				celruletest.Expect(t, result, "spec.egress")
 			} else {

@@ -85,8 +85,11 @@ and lists every resource excepted and why.
 enforces it once its warnings are worked down.`,
 	}
 	cmd.AddCommand(basicPack.InstallCmd(cub.Preflight), guardrails.Pack{}.StatusCmd(cub.Preflight),
-		guardrails.ExceptionCmd(cub.Preflight, basicPack, workload.Pack, scheduling.Pack, autoscale.Pack,
-			observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack),
-		guardrails.UpdateCmd(cub.Preflight))
+		guardrails.ExceptionCmd(cub.Preflight, allPacks...),
+		guardrails.UpdateCmd(cub.Preflight, allPacks...))
 	return cmd
 }
+
+// allPacks are every tool's guardrail packs.
+var allPacks = []guardrails.Pack{basicPack, workload.Pack, scheduling.Pack, autoscale.Pack,
+	observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack}

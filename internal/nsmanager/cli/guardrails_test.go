@@ -11,15 +11,14 @@ import (
 
 func TestNamespaceRules(t *testing.T) {
 	unlabeled := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n  labels:\n    team: web\n"
-	result := celruletest.Eval(t, celHasPodSecurity, unlabeled)
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "namespace-has-pod-security"), unlabeled)
 	celruletest.Expect(t, result, "metadata.labels.pod-security~1kubernetes~1io/enforce")
 	celruletest.ExpectResource(t, result, "/shop", "v1/Namespace")
 
 	labeled := "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: shop\n  labels:\n    pod-security.kubernetes.io/enforce: baseline\n"
-	celruletest.Expect(t, celruletest.Eval(t, celHasPodSecurity, labeled))
-	celruletest.Expect(t, celruletest.Eval(t, celHasPodSecurity, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n"))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "namespace-has-pod-security"), labeled))
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {
-	celruletest.UnrelatedResourcesPass(t, Pack.Rules)
+	celruletest.UnrelatedResourcesPass(t, Pack)
 }

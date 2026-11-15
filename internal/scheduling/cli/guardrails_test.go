@@ -44,13 +44,13 @@ spec:
 
 // The scheduling rules name the constraint that fails, by index.
 func TestSchedulingRulesNameTheFailingConstraint(t *testing.T) {
-	result := celruletest.Eval(t, celSpreadSelectsOwnPods, spread)
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "scheduling-spread-selects-own-pods"), spread)
 	celruletest.Expect(t, result, "spec.template.spec.topologySpreadConstraints.1.labelSelector")
 	celruletest.ExpectResource(t, result, "shop/web", "apps/v1/Deployment")
 
-	celruletest.Expect(t, celruletest.Eval(t, celMinDomainsNeedsDoNotSchedule, spread),
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "scheduling-min-domains-needs-donotschedule"), spread),
 		"spec.template.spec.topologySpreadConstraints.1.whenUnsatisfiable")
-	celruletest.Expect(t, celruletest.Eval(t, celTolerationNeedsPlacement, spread), "spec.template.spec.tolerations")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "scheduling-toleration-needs-placement"), spread), "spec.template.spec.tolerations")
 }
 
 func TestSchedulingRulesPass(t *testing.T) {
@@ -80,20 +80,16 @@ spec:
         - name: web
           image: nginx:1.27
 `
-	for name, expression := range map[string]string{
-		"toleration-needs-placement": celTolerationNeedsPlacement,
-		"spread-selects-own-pods":    celSpreadSelectsOwnPods,
-		"min-domains":                celMinDomainsNeedsDoNotSchedule,
-	} {
-		t.Run(name, func(t *testing.T) {
-			celruletest.Expect(t, celruletest.Eval(t, expression, placed))
+	for _, check := range Pack.Checks {
+		t.Run(check.Name, func(t *testing.T) {
+			celruletest.Expect(t, celruletest.EvalCheck(t, check, placed))
 		})
 	}
 	// A constraint without a labelSelector selects nothing.
 	noSelector := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  template:\n    spec:\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: zone\n      containers:\n        - name: web\n"
-	celruletest.Expect(t, celruletest.Eval(t, celSpreadSelectsOwnPods, noSelector), "spec.template.spec.topologySpreadConstraints.0.labelSelector")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "scheduling-spread-selects-own-pods"), noSelector), "spec.template.spec.topologySpreadConstraints.0.labelSelector")
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {
-	celruletest.UnrelatedResourcesPass(t, Pack.Rules)
+	celruletest.UnrelatedResourcesPass(t, Pack)
 }

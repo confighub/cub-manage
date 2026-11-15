@@ -10,8 +10,13 @@
 // FailedAttributes and Details, so a reader can point at the field to fix, or at
 // the resource to except, instead of parsing a message.
 //
-// A rule states its failures as a CEL list of Failure maps, empty when the
-// resource passes, and Result turns that into the map vet-cel reads.
+// A check states its failures as a CEL list of Failure maps, empty when the
+// resource passes. Its pack's install combines the failures of the checks a rule
+// runs into the map vet-cel reads, each failure naming its check
+// (guardrails.CheckExpression).
+//
+// A check's rule selects the resource types it governs with WhereResource, so its
+// failures are evaluated only on those, and need no kind test to pass the rest.
 package celrule
 
 import "strings"
@@ -39,6 +44,10 @@ func Failure(path, value, detail string) string {
 		", 'Detail': " + detail + "}"
 }
 
+// Controllers are the resource types whose pod templates the workload checks
+// read.
+var Controllers = []string{"apps/v1/Deployment", "apps/v1/StatefulSet", "apps/v1/DaemonSet", "apps/v1/ReplicaSet"}
+
 // None is the value of a Failure whose attribute is missing.
 const None = "optional.none()"
 
@@ -52,14 +61,6 @@ func When(applies, failures string) string {
 	return "(" + applies + " ? " + failures + " : [])"
 }
 
-// Result is the vet-cel expression for a rule whose failures, a CEL list of
-// Failure maps, is empty when r passes. The list is bound once, as the element
-// of a one-element list, since vet-cel's CEL has no variable binding and the
-// result reads it three times.
-func Result(failures string) string {
-	return "[" + failures + "].map(f, {'passed': size(f) == 0, 'details': f.map(a, a.Detail), 'failed_attributes': f})[0]"
-}
-
 // Lit is s as a CEL string literal. s must not contain a single quote.
 func Lit(s string) string {
 	return "'" + s + "'"
@@ -71,13 +72,13 @@ func MapKeyPath(prefix, key string) string {
 	return prefix + "." + strings.ReplaceAll(key, ".", "~1")
 }
 
-// AnnotationFinding fails r while it carries the annotation key, which a
+// AnnotationFailures fails r while it carries the annotation key, which a
 // guardrails annotate command writes on a Unit to record what no single
 // resource can show. The null check matters: a bare `annotations:` key is
 // present with a null value, and `in` against null is an error.
-func AnnotationFinding(key, detail string) string {
+func AnnotationFailures(key, detail string) string {
 	present := "has(r.metadata.annotations) && r.metadata.annotations != null && " + Lit(key) + " in r.metadata.annotations"
-	return Result(When(present, "["+Failure(Lit(MapKeyPath("metadata.annotations", key)), Some("r.metadata.annotations["+Lit(key)+"]"), Lit(detail))+"]"))
+	return When(present, "["+Failure(Lit(MapKeyPath("metadata.annotations", key)), Some("r.metadata.annotations["+Lit(key)+"]"), Lit(detail))+"]")
 }
 
 // ContainerPath is the path of field in the container c of a pod template, by
