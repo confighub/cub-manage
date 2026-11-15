@@ -4,8 +4,11 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/confighub/sdk/managerkit/guardrails"
 
 	"github.com/confighub/cub-manage/internal/celrule/celruletest"
 )
@@ -38,19 +41,18 @@ spec:
 // Each workload rule names the container that fails it, at the field to fix.
 func TestWorkloadRulesNameTheFailingContainer(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		expression string
-		path       string
-		value      any
+		check string
+		path  string
+		value any
 	}{
-		{"has-limits", celHasLimits, "spec.template.spec.containers.?name=web.resources.limits.memory", nil},
-		{"runs-nonroot", celRunsNonRoot, "spec.template.spec.containers.?name=web.securityContext.runAsNonRoot", nil},
-		{"readonly-root-filesystem", celReadOnlyRootFS, "spec.template.spec.containers.?name=web.securityContext.readOnlyRootFilesystem", nil},
-		{"termination-message-policy", celTerminationMsg, "spec.template.spec.containers.?name=web.terminationMessagePolicy", nil},
-		{"database-statefulset", celDatabaseStateful, "spec.template.spec.containers.?name=web.image", "postgres:16"},
+		{"workload-has-limits", "spec.template.spec.containers.?name=web.resources.limits.memory", nil},
+		{"workload-runs-nonroot", "spec.template.spec.containers.?name=web.securityContext.runAsNonRoot", nil},
+		{"workload-readonly-root-filesystem", "spec.template.spec.containers.?name=web.securityContext.readOnlyRootFilesystem", nil},
+		{"workload-termination-message-policy", "spec.template.spec.containers.?name=web.terminationMessagePolicy", nil},
+		{"workload-database-statefulset", "spec.template.spec.containers.?name=web.image", "postgres:16"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			result := celruletest.Eval(t, tc.expression, twoContainers)
+		t.Run(tc.check, func(t *testing.T) {
+			result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, tc.check), twoContainers)
 			celruletest.Expect(t, result, tc.path)
 			celruletest.ExpectResource(t, result, "shop/web", "apps/v1/Deployment")
 			if len(result.FailedAttributes) == 1 && result.FailedAttributes[0].Value != tc.value {
@@ -83,22 +85,20 @@ spec:
             limits:
               memory: 1Gi
 `
-	for name, expression := range map[string]string{
-		"has-limits": celHasLimits, "runs-nonroot": celRunsNonRoot, "readonly-root-filesystem": celReadOnlyRootFS,
-		"termination-message-policy": celTerminationMsg, "database-statefulset": celDatabaseStateful,
-		"pdb-coverage": celNoPDBFinding,
-	} {
-		t.Run(name, func(t *testing.T) {
-			celruletest.Expect(t, celruletest.Eval(t, expression, compliant))
+	for _, check := range Pack.Checks {
+		// The database check's rule does not select StatefulSets.
+		if check.Engine != guardrails.EngineCEL || len(check.ResourceTypes) > 0 && !slices.Contains(check.ResourceTypes, "apps/v1/StatefulSet") {
+			continue
+		}
+		t.Run(check.Name, func(t *testing.T) {
+			celruletest.Expect(t, celruletest.EvalCheck(t, check, compliant))
 		})
 	}
-	// Not a controller: nothing to check.
-	celruletest.Expect(t, celruletest.Eval(t, celHasLimits, "apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n"))
 }
 
 // A controller with no containers has none to pass.
 func TestWorkloadRuleWithoutContainers(t *testing.T) {
-	result := celruletest.Eval(t, celHasLimits, "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  template:\n    spec: {}\n")
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-has-limits"), "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  template:\n    spec: {}\n")
 	celruletest.Expect(t, result, "spec.template.spec.containers")
 	celruletest.ExpectResource(t, result, "/web", "apps/v1/Deployment")
 }
@@ -122,7 +122,7 @@ spec:
           securityContext:
             readOnlyRootFilesystem: false
 `
-	result := celruletest.Eval(t, celReadOnlyRootFS, writable)
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-readonly-root-filesystem"), writable)
 	celruletest.Expect(t, result, "spec.template.spec.containers.?name=web.securityContext.readOnlyRootFilesystem")
 	if len(result.FailedAttributes) == 1 && result.FailedAttributes[0].Value != false {
 		t.Errorf("value = %v, want false", result.FailedAttributes[0].Value)
@@ -138,15 +138,15 @@ metadata:
   annotations:
     workload.confighub.com/pdb-coverage: uncovered
 `
-	result := celruletest.Eval(t, celNoPDBFinding, annotated)
+	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-pdb-coverage"), annotated)
 	celruletest.Expect(t, result, "metadata.annotations.workload~1confighub~1com/pdb-coverage")
 	if len(result.FailedAttributes) == 1 && result.FailedAttributes[0].Value != "uncovered" {
 		t.Errorf("value = %v, want the annotation's", result.FailedAttributes[0].Value)
 	}
 	// A bare annotations key is null, and passes.
-	celruletest.Expect(t, celruletest.Eval(t, celNoPDBFinding, "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n"))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-pdb-coverage"), "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n"))
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {
-	celruletest.UnrelatedResourcesPass(t, Pack.Rules)
+	celruletest.UnrelatedResourcesPass(t, Pack)
 }

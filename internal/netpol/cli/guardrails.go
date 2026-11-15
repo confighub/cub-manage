@@ -30,14 +30,17 @@ import (
 // (annotate-then-validate).
 const coverageAnnotation = "netpol.confighub.com/ingress-coverage"
 
-// Guardrail CEL expressions, evaluated per resource (r aliases the resource).
+// The checks' failures, evaluated on each NetworkPolicy, or for the coverage
+// check each resource (r is the resource).
+
+var networkPolicy = []string{"networking.k8s.io/v1/NetworkPolicy"}
 
 // egressPeerFailures fails each peer of each egress rule of a NetworkPolicy whose
 // ipBlock does not pass ok, a condition on peer, at field of the peer, with
 // value and detail. i and j index the rule and the peer.
 func egressPeerFailures(ok, field, value, detail string) string {
 	egress := "r.spec.egress"
-	return celrule.When("r.kind == 'NetworkPolicy' && has("+egress+")",
+	return celrule.When("has("+egress+")",
 		"lists.range(size("+egress+")).filter(i, has("+egress+"[i].to)).map(i, "+
 			"lists.range(size("+egress+"[i].to)).filter(j, has("+egress+"[i].to[j].ipBlock) && !("+ok+")).map(j, "+
 			celrule.Failure("'spec.egress.' + string(i) + '.to.' + string(j) + '."+field+"'", value, detail)+")).flatten()")
@@ -51,7 +54,7 @@ const peer = "r.spec.egress[i].to[j]"
 // indexes the rule.
 func egressRuleFailures(bad, field, value, detail string) string {
 	egress := "r.spec.egress"
-	return celrule.When("r.kind == 'NetworkPolicy' && has("+egress+")",
+	return celrule.When("has("+egress+")",
 		"lists.range(size("+egress+")).filter(i, "+bad+").map(i, "+
 			celrule.Failure(celrule.Indexed("spec.egress", "i", field), value, detail)+")")
 }
@@ -89,30 +92,30 @@ const policyIsolatesEgress = "(has(r.spec.policyTypes) ? 'Egress' in r.spec.poli
 
 var (
 	// Every ingress rule must name its sources — an empty `from` admits all.
-	celNoAllowAllIngress = celrule.Result(celrule.When("r.kind == 'NetworkPolicy' && has(r.spec.ingress)",
+	celNoAllowAllIngress = celrule.When("has(r.spec.ingress)",
 		"lists.range(size(r.spec.ingress)).filter(i, !(has(r.spec.ingress[i].from) && size(r.spec.ingress[i].from) > 0)).map(i, "+
 			celrule.Failure(celrule.Indexed("spec.ingress", "i", "from"), "r.spec.ingress[i].?from",
-				"'ingress rule ' + string(i) + ' names no sources, so it admits all of them'")+")"))
+				"'ingress rule ' + string(i) + ' names no sources, so it admits all of them'")+")")
 
 	// No egress rule may permit the whole internet via 0.0.0.0/0 or ::/0.
-	celNoWideCidrEgress = celrule.Result(egressPeerFailures("!("+peer+".ipBlock.cidr in ['0.0.0.0/0', '::/0'])",
-		"ipBlock.cidr", celrule.Some(peer+".ipBlock.cidr"), "'egress rule ' + string(i) + ' allows the whole internet'"))
+	celNoWideCidrEgress = egressPeerFailures("!("+peer+".ipBlock.cidr in ['0.0.0.0/0', '::/0'])",
+		"ipBlock.cidr", celrule.Some(peer+".ipBlock.cidr"), "'egress rule ' + string(i) + ' allows the whole internet'")
 
 	// No egress rule may allow every destination on every port. One naming
 	// ports, such as HTTPS to anywhere, says what it allows.
-	celNoOpenEgress = celrule.Result(egressRuleFailures(noDestinations+" && "+noPorts,
-		"to", rule+".?to", "'egress rule ' + string(i) + ' names no destinations and no ports, so it allows all egress'"))
+	celNoOpenEgress = egressRuleFailures(noDestinations+" && "+noPorts,
+		"to", rule+".?to", "'egress rule ' + string(i) + ' names no destinations and no ports, so it allows all egress'")
 
 	// A policy that isolates egress and allows some must allow DNS -- UDP 53,
 	// or the port the cluster DNS names "dns" -- to somewhere the cluster DNS
 	// can be, or the pods it selects cannot resolve names. A policy with no
 	// egress rules denies all egress deliberately, and is left alone.
-	celEgressAllowsDNS = celrule.Result(celrule.When(
-		"r.kind == 'NetworkPolicy' && "+policyIsolatesEgress+" && has(r.spec.egress) && size(r.spec.egress) > 0 && "+
+	celEgressAllowsDNS = celrule.When(
+		""+policyIsolatesEgress+" && has(r.spec.egress) && size(r.spec.egress) > 0 && "+
 			"!lists.range(size(r.spec.egress)).exists(i, "+allowsPort("UDP", 53, "dns")+" && ("+noDestinations+" || "+
 			rule+".to.exists(t, has(t.namespaceSelector) || has(t.ipBlock))))",
 		"["+celrule.Failure("'spec.egress'", celrule.None,
-			"'no egress rule allows DNS (UDP 53), so the pods this policy selects cannot resolve names once it is enforced'")+"]"))
+			"'no egress rule allows DNS (UDP 53), so the pods this policy selects cannot resolve names once it is enforced'")+"]")
 
 	// celNoMetadataEgress fails an egress ipBlock whose CIDR contains the cloud
 	// metadata IP unless an except names it. The CIDRs are listed rather than
@@ -120,28 +123,42 @@ var (
 	// that cover the IP, so an except as wide as the block it is in counts.
 	// An egress rule that names no destinations reaches the metadata IP too,
 	// when it allows the metadata service's port, TCP 80.
-	celNoMetadataEgress = celrule.Result(egressPeerFailures(
+	celNoMetadataEgress = egressPeerFailures(
 		fmt.Sprintf("!(%[1]s.ipBlock.cidr in [%[2]s]) || (has(%[1]s.ipBlock.except) && %[1]s.ipBlock.except.exists(e, e in [%[2]s, '%[3]s/32']))",
 			peer, metadataCIDRs(), metadataIP),
 		"ipBlock.except", peer+".ipBlock.?except",
 		"'egress rule ' + string(i) + ' reaches the cloud metadata IP through ' + "+peer+".ipBlock.cidr + ' without excepting it'") +
 		" + " + egressRuleFailures(noDestinations+" && "+allowsPort("TCP", 80),
-		"to", rule+".?to", "'egress rule ' + string(i) + ' names no destinations and allows TCP 80, so it reaches the cloud metadata IP'"))
+		"to", rule+".?to", "'egress rule ' + string(i) + ' names no destinations and allows TCP 80, so it reaches the cloud metadata IP'")
 
 	// Annotate-then-validate: warn while a coverage annotation is present.
-	celNoCoverageFinding = celrule.AnnotationFinding(coverageAnnotation,
+	celNoCoverageFinding = celrule.AnnotationFailures(coverageAnnotation,
 		"no ingress NetworkPolicy selects this workload, as guardrails annotate found")
 )
 
 var Pack = guardrails.Pack{
 	Group: "netpol",
-	Rules: []guardrails.Rule{
-		{Slug: "netpol-no-allow-all-ingress", DisplayName: "Ingress rules name their sources", Description: "Warns on a NetworkPolicy ingress rule with an empty `from` (admits all sources). Fix: enumerate the allowed sources.", Expression: celNoAllowAllIngress},
-		{Slug: "netpol-no-wide-cidr-egress", DisplayName: "No egress to the whole internet", Description: "Warns on an egress rule permitting 0.0.0.0/0 or ::/0. Fix: restrict the CIDR, or except the cloud-metadata IP with the netpol-except-metadata profile.", Expression: celNoWideCidrEgress},
-		{Slug: "netpol-no-open-egress", DisplayName: "Egress rules name destinations or ports", Description: "Warns on an egress rule with neither `to` nor `ports`, which allows every destination on every port. Fix: name the destinations, or the ports, such as 443, that the pods need.", Expression: celNoOpenEgress},
-		{Slug: "netpol-no-metadata-egress", DisplayName: "No egress to the cloud metadata IP", Description: "Warns on an egress rule that reaches the cloud metadata IP 169.254.169.254: an ipBlock containing it without excepting it, or a rule with no `to` that allows TCP 80. Fix: the netpol-except-metadata profile, or name the destinations.", Expression: celNoMetadataEgress},
-		{Slug: "netpol-egress-allows-dns", DisplayName: "Egress policies allow DNS", Description: "Warns on a NetworkPolicy that isolates egress and allows some, but no DNS (UDP 53): once enforced, the pods it selects cannot resolve names. A policy with no egress rules, a deliberate deny-all, is not checked. Fix: allow UDP and TCP 53 to the cluster DNS. Policies add up, so where a separate policy allows DNS, except this one, and `cub manage netpol findings` checks the union.", Expression: celEgressAllowsDNS},
-		{Slug: "netpol-ingress-coverage", DisplayName: "Workloads have an ingress NetworkPolicy", Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.", Expression: celNoCoverageFinding},
+	Checks: []guardrails.Check{
+		{Control: "CH-0501", Name: "netpol-no-allow-all-ingress", Rule: "netpol-no-allow-all-ingress", DisplayName: "Ingress rules name their sources",
+			Description: "Warns on a NetworkPolicy ingress rule with an empty `from` (admits all sources). Fix: enumerate the allowed sources.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celNoAllowAllIngress, ResourceTypes: networkPolicy,
+			Corresponds: []string{"KL:non-isolated-pod"}},
+		{Control: "CH-0502", Name: "netpol-no-wide-cidr-egress", Rule: "netpol-no-wide-cidr-egress", DisplayName: "No egress to the whole internet",
+			Description: "Warns on an egress rule permitting 0.0.0.0/0 or ::/0. Fix: restrict the CIDR, or except the cloud-metadata IP with the netpol-except-metadata profile.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celNoWideCidrEgress, ResourceTypes: networkPolicy},
+		{Control: "CH-0503", Name: "netpol-no-open-egress", Rule: "netpol-no-open-egress", DisplayName: "Egress rules name destinations or ports",
+			Description: "Warns on an egress rule with neither `to` nor `ports`, which allows every destination on every port. Fix: name the destinations, or the ports, such as 443, that the pods need.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celNoOpenEgress, ResourceTypes: networkPolicy},
+		{Control: "CH-0504", Name: "netpol-no-metadata-egress", Rule: "netpol-no-metadata-egress", DisplayName: "No egress to the cloud metadata IP",
+			Description: "Warns on an egress rule that reaches the cloud metadata IP 169.254.169.254: an ipBlock containing it without excepting it, or a rule with no `to` that allows TCP 80. Fix: the netpol-except-metadata profile, or name the destinations.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, Failures: celNoMetadataEgress, ResourceTypes: networkPolicy},
+		{Control: "CH-0505", Name: "netpol-egress-allows-dns", Rule: "netpol-egress-allows-dns", DisplayName: "Egress policies allow DNS",
+			Description: "Warns on a NetworkPolicy that isolates egress and allows some, but no DNS (UDP 53): once enforced, the pods it selects cannot resolve names. A policy with no egress rules, a deliberate deny-all, is not checked. Fix: allow UDP and TCP 53 to the cluster DNS. Policies add up, so where a separate policy allows DNS, except this one, and `cub manage netpol findings` checks the union.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, Failures: celEgressAllowsDNS, ResourceTypes: networkPolicy},
+		{Control: "CH-0506", Name: "netpol-ingress-coverage", Rule: "netpol-ingress-coverage", DisplayName: "Workloads have an ingress NetworkPolicy",
+			Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, Failures: celNoCoverageFinding,
+			Corresponds: []string{"SC:pod-networkpolicy"}},
 	},
 }
 

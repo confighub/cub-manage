@@ -23,21 +23,23 @@ import (
 // it can't actually scale). An HPA's maxReplicas is required and minReplicas
 // defaults to 1; a ScaledObject's bounds are both optional, so an absent bound
 // is treated as unpinned.
-var celAutoscalerNotPinned = celrule.Result(
-	celrule.When("r.kind == 'HorizontalPodAutoscaler' && has(r.spec.minReplicas) && r.spec.minReplicas >= r.spec.maxReplicas",
-		"["+celrule.Failure(celrule.Lit("spec.minReplicas"), celrule.Some("r.spec.minReplicas"),
-			"'minReplicas ' + string(r.spec.minReplicas) + ' leaves no room below maxReplicas ' + string(r.spec.maxReplicas)")+"]") +
-		" + " +
-		celrule.When("r.kind == 'ScaledObject' && has(r.spec.minReplicaCount) && has(r.spec.maxReplicaCount) && r.spec.minReplicaCount >= r.spec.maxReplicaCount",
-			"["+celrule.Failure(celrule.Lit("spec.minReplicaCount"), celrule.Some("r.spec.minReplicaCount"),
-				"'minReplicaCount ' + string(r.spec.minReplicaCount) + ' leaves no room below maxReplicaCount ' + string(r.spec.maxReplicaCount)")+"]"))
+var celAutoscalerNotPinned = (celrule.When("r.kind == 'HorizontalPodAutoscaler' && has(r.spec.minReplicas) && r.spec.minReplicas >= r.spec.maxReplicas",
+	"["+celrule.Failure(celrule.Lit("spec.minReplicas"), celrule.Some("r.spec.minReplicas"),
+		"'minReplicas ' + string(r.spec.minReplicas) + ' leaves no room below maxReplicas ' + string(r.spec.maxReplicas)")+"]") +
+	" + " +
+	celrule.When("r.kind == 'ScaledObject' && has(r.spec.minReplicaCount) && has(r.spec.maxReplicaCount) && r.spec.minReplicaCount >= r.spec.maxReplicaCount",
+		"["+celrule.Failure(celrule.Lit("spec.minReplicaCount"), celrule.Some("r.spec.minReplicaCount"),
+			"'minReplicaCount ' + string(r.spec.minReplicaCount) + ' leaves no room below maxReplicaCount ' + string(r.spec.maxReplicaCount)")+"]"))
 
 var Pack = guardrails.Pack{
 	Group: "autoscale",
-	Rules: []guardrails.Rule{
-		{Slug: "autoscale-not-pinned", DisplayName: "Autoscalers can scale",
+	Checks: []guardrails.Check{
+		{Control: "CH-1201", Name: "autoscale-not-pinned", Rule: "autoscale-not-pinned", DisplayName: "Autoscalers can scale",
 			Description: "Warns on an HPA/ScaledObject with min == max (it can't actually scale). Fix: `cub manage autoscale set-hpa --min <lower> --max <higher>` or a profile.",
-			Expression:  celAutoscalerNotPinned},
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow,
+			ResourceTypes: []string{"autoscaling/v1/HorizontalPodAutoscaler", "autoscaling/v2/HorizontalPodAutoscaler", "keda.sh/v1alpha1/ScaledObject"},
+			Fix:           "cub manage autoscale set-hpa --min <lower> --max <higher>",
+			Failures:      celAutoscalerNotPinned},
 	},
 }
 

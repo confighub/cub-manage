@@ -27,15 +27,19 @@ import (
 // coverage is a cross-Unit property a per-Unit CEL check cannot compute).
 const coverageAnnotation = "observability.confighub.com/servicemonitor-coverage"
 
-var celNoCoverageFinding = celrule.AnnotationFinding(coverageAnnotation,
+var celNoCoverageFinding = celrule.AnnotationFailures(coverageAnnotation,
 	"no ServiceMonitor scrapes this metrics Service, as guardrails annotate found")
 
 var Pack = guardrails.Pack{
 	Group: "observability",
-	Rules: []guardrails.Rule{
-		{Slug: "observability-servicemonitor-coverage", DisplayName: "Metrics Services have a ServiceMonitor",
+	Checks: []guardrails.Check{
+		{Control: "CH-1301", Name: "observability-servicemonitor-coverage", Rule: "observability-servicemonitor-coverage",
+			DisplayName: "Metrics Services have a ServiceMonitor",
 			Description: "Warns while an observability.confighub.com/servicemonitor-coverage annotation is present (set by `cub manage observability guardrails annotate`) — a metrics Service with no ServiceMonitor. Fix: `cub manage observability ensure-servicemonitor`, then re-run annotate.",
-			Expression:  celNoCoverageFinding},
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow,
+			Fix: "cub manage observability ensure-servicemonitor",
+			// guardrails annotate writes the finding on each resource of the Unit.
+			Failures: celNoCoverageFinding},
 	},
 }
 

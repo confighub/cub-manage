@@ -19,9 +19,12 @@ import (
 	"github.com/confighub/cub-manage/internal/cub"
 )
 
-// Guardrail CEL expressions, evaluated per resource (r aliases the resource).
+// The checks' failures, evaluated on each resource of the types their rules
+// select (r is the resource).
 
-const roleWithRules = "r.kind in ['Role', 'ClusterRole'] && has(r.rules)"
+var roleTypes = []string{"rbac.authorization.k8s.io/v1/Role", "rbac.authorization.k8s.io/v1/ClusterRole"}
+
+const roleWithRules = "has(r.rules)"
 
 // ruleFailures fails the field of each rule of a Role whose values include one
 // of bad, a CEL list, with detail.
@@ -32,24 +35,34 @@ func ruleFailures(field, bad, detail string) string {
 
 var (
 	// Each wildcard is reported at its field, so a rule with two is two failures.
-	celNoWildcards = celrule.Result(celrule.When(roleWithRules,
+	celNoWildcards = celrule.When(roleWithRules,
 		ruleFailures("verbs", "['*']", "'rule ' + string(i) + ' allows every verb'")+" + "+
 			ruleFailures("resources", "['*']", "'rule ' + string(i) + ' covers every resource'")+" + "+
-			ruleFailures("apiGroups", "['*']", "'rule ' + string(i) + ' covers every API group'")))
+			ruleFailures("apiGroups", "['*']", "'rule ' + string(i) + ' covers every API group'"))
 
-	celNoEscalation = celrule.Result(celrule.When(roleWithRules,
-		ruleFailures("verbs", "['escalate', 'bind', 'impersonate']", "'rule ' + string(i) + ' grants escalate, bind or impersonate'")))
+	celNoEscalation = celrule.When(roleWithRules,
+		ruleFailures("verbs", "['escalate', 'bind', 'impersonate']", "'rule ' + string(i) + ' grants escalate, bind or impersonate'"))
 
-	celNoClusterAdmin = celrule.Result(celrule.When("r.kind == 'ClusterRoleBinding' && r.roleRef.name == 'cluster-admin'",
-		"["+celrule.Failure(celrule.Lit("roleRef.name"), celrule.Some("r.roleRef.name"), celrule.Lit("the binding grants cluster-admin"))+"]"))
+	celNoClusterAdmin = celrule.When("r.roleRef.name == 'cluster-admin'",
+		"["+celrule.Failure(celrule.Lit("roleRef.name"), celrule.Some("r.roleRef.name"), celrule.Lit("the binding grants cluster-admin"))+"]")
 )
 
 var Pack = guardrails.Pack{
 	Group: "rbac",
-	Rules: []guardrails.Rule{
-		{Slug: "rbac-no-wildcards", DisplayName: "No wildcards in RBAC roles", Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.", Expression: celNoWildcards},
-		{Slug: "rbac-no-privilege-escalation", DisplayName: "No privilege escalation in RBAC roles", Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.", Expression: celNoEscalation},
-		{Slug: "rbac-no-cluster-admin-binding", DisplayName: "No bindings to cluster-admin", Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.", Expression: celNoClusterAdmin},
+	Checks: []guardrails.Check{
+		{Control: "CH-0401", Name: "rbac-no-wildcards", Rule: "rbac-no-wildcards", DisplayName: "No wildcards in RBAC roles",
+			Description: "Warns on Roles/ClusterRoles with wildcard verbs, resources, or apiGroups. Fix: enumerate the specific verbs/resources the role needs.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, ResourceTypes: roleTypes, Failures: celNoWildcards,
+			Corresponds: []string{"KL:wildcard-in-rules", "KY:restrict-wildcard-resources", "KY:restrict-wildcard-verbs", "CIS:5.1.3"}},
+		{Control: "CH-0402", Name: "rbac-no-privilege-escalation", Rule: "rbac-no-privilege-escalation", DisplayName: "No privilege escalation in RBAC roles",
+			Description: "Warns on Roles/ClusterRoles granting escalate, bind, or impersonate. Fix: remove these verbs; they allow privilege escalation.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, ResourceTypes: roleTypes, Failures: celNoEscalation,
+			Corresponds: []string{"KY:restrict-escalation-verbs-roles", "CIS:5.1.8"}},
+		{Control: "CH-0403", Name: "rbac-no-cluster-admin-binding", Rule: "rbac-no-cluster-admin-binding", DisplayName: "No bindings to cluster-admin",
+			Description: "Warns on ClusterRoleBindings to cluster-admin. Fix: bind a scoped role instead.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh,
+			ResourceTypes: []string{"rbac.authorization.k8s.io/v1/ClusterRoleBinding"}, Failures: celNoClusterAdmin,
+			Corresponds: []string{"KL:cluster-admin-role-binding", "KY:restrict-binding-clusteradmin", "CIS:5.1.1"}},
 	},
 }
 

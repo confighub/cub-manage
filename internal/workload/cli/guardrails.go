@@ -28,8 +28,6 @@ import (
 // (annotate-then-validate -- the one finding a per-Unit CEL check cannot see).
 const pdbCoverageAnnotation = "workload.confighub.com/pdb-coverage"
 
-const controllerKinds = "['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet']"
-
 const containers = "r.spec.template.spec.containers"
 
 // containerFailures fails each container of a controller's pod template that
@@ -37,41 +35,38 @@ const containers = "r.spec.template.spec.containers"
 // containers at all, which has none to pass.
 func containerFailures(ok, field, value, detail string) string {
 	noContainers := celrule.Failure(celrule.Lit("spec.template.spec.containers"), celrule.None, celrule.Lit("the pod template has no containers"))
-	return celrule.When("r.kind in "+controllerKinds,
-		"(!has("+containers+") ? ["+noContainers+"] : "+
-			containers+".filter(c, !("+ok+")).map(c, "+celrule.Failure(celrule.ContainerPath(field), value, detail)+"))")
+	return "(!has(" + containers + ") ? [" + noContainers + "] : " +
+		containers + ".filter(c, !(" + ok + ")).map(c, " + celrule.Failure(celrule.ContainerPath(field), value, detail) + "))"
 }
 
 var (
-	celHasLimits = celrule.Result(containerFailures(
+	celHasLimits = containerFailures(
 		"has(c.resources) && has(c.resources.limits) && 'memory' in c.resources.limits",
-		"resources.limits.memory", celrule.None, "'container ' + c.name + ' sets no memory limit'"))
+		"resources.limits.memory", celrule.None, "'container ' + c.name + ' sets no memory limit'")
 
 	// A pod that runs as non-root covers its containers; otherwise each has to.
-	// The kind is checked first, since a resource that is not a controller may
-	// have no pod template to read.
-	celRunsNonRoot = celrule.Result(celrule.When(
-		"r.kind in "+controllerKinds+" && !(has(r.spec.template.spec.securityContext) && has(r.spec.template.spec.securityContext.runAsNonRoot) && r.spec.template.spec.securityContext.runAsNonRoot)",
+	celRunsNonRoot = celrule.When(
+		"!(has(r.spec.template.spec.securityContext) && has(r.spec.template.spec.securityContext.runAsNonRoot) && r.spec.template.spec.securityContext.runAsNonRoot)",
 		containerFailures(
 			"has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot",
 			"securityContext.runAsNonRoot", "c.?securityContext.?runAsNonRoot",
-			"'container ' + c.name + ' does not set runAsNonRoot: true, and neither does its pod'")))
+			"'container ' + c.name + ' does not set runAsNonRoot: true, and neither does its pod'"))
 
 	// readOnlyRootFilesystem is a container setting only; a pod has none to
 	// cover its containers. A container that writes to its filesystem mounts an
 	// emptyDir where it writes, or is excepted from the rule.
-	celReadOnlyRootFS = celrule.Result(containerFailures(
+	celReadOnlyRootFS = containerFailures(
 		"has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem",
 		"securityContext.readOnlyRootFilesystem", "c.?securityContext.?readOnlyRootFilesystem",
-		"'container ' + c.name + ' does not set readOnlyRootFilesystem: true'"))
+		"'container ' + c.name + ' does not set readOnlyRootFilesystem: true'")
 
-	celTerminationMsg = celrule.Result(containerFailures(
+	celTerminationMsg = containerFailures(
 		"has(c.terminationMessagePolicy) && c.terminationMessagePolicy == 'FallbackToLogsOnError'",
 		"terminationMessagePolicy", "c.?terminationMessagePolicy",
-		"'container ' + c.name + ' does not set terminationMessagePolicy: FallbackToLogsOnError'"))
+		"'container ' + c.name + ' does not set terminationMessagePolicy: FallbackToLogsOnError'")
 
 	// Annotate-then-validate: warn while a pdb-coverage finding annotation is present.
-	celNoPDBFinding = celrule.AnnotationFinding(pdbCoverageAnnotation,
+	celNoPDBFinding = celrule.AnnotationFailures(pdbCoverageAnnotation,
 		"no PodDisruptionBudget selects this workload, as guardrails annotate found")
 )
 
@@ -84,11 +79,11 @@ const databaseImage = `^([^/]+/)*(postgres|postgresql|postgis|timescaledb|timesc
 // image. Their Pods are interchangeable, so a rollout can run two database
 // Pods on one volume, or start a replacement before the old one lets go of it;
 // a StatefulSet gives each replica a stable identity and its own volume.
-var celDatabaseStateful = celrule.Result(celrule.When(
-	"r.kind in ['Deployment', 'ReplicaSet'] && has("+containers+")",
+var celDatabaseStateful = celrule.When(
+	"has("+containers+")",
 	containers+".filter(c, has(c.image) && c.image.matches('"+databaseImage+"')).map(c, "+
 		celrule.Failure(celrule.ContainerPath("image"), celrule.Some("c.image"),
-			"'container ' + c.name + ' runs the database image ' + c.image + ' in a ' + r.kind + ' rather than a StatefulSet'")+")"))
+			"'container ' + c.name + ' runs the database image ' + c.image + ' in a ' + r.kind + ' rather than a StatefulSet'")+")")
 
 // untaggedOrLatestImage matches an image reference whose image tag is latest, or
 // that has neither an image tag nor a digest, where the runtime pulls latest. The
@@ -98,15 +93,48 @@ const untaggedOrLatestImage = `(:latest$)|^([^/]+/)*[^/:@]+$`
 
 var Pack = guardrails.Pack{
 	Group: "workload",
-	Rules: []guardrails.Rule{
-		{Slug: "workload-has-limits", DisplayName: "Containers set a memory limit", Description: "Warns on a controller whose containers don't all set resources.limits.memory. Fix: `cub manage workload set-resources <space>/<unit>`.", Expression: celHasLimits},
-		{Slug: "workload-runs-nonroot", DisplayName: "Workloads run as non-root", Description: "Warns on a controller not running as non-root (pod or all containers). Fix: `cub manage workload harden <space>/<unit>`.", Expression: celRunsNonRoot},
-		{Slug: "workload-readonly-root-filesystem", DisplayName: "Containers have a read-only root filesystem", Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.", Expression: celReadOnlyRootFS},
-		{Slug: "workload-termination-message-policy", DisplayName: "Containers fall back to logs for termination messages", Description: "Warns on a controller whose containers don't all set terminationMessagePolicy: FallbackToLogsOnError. Fix: the termination-message-policy profile.", Expression: celTerminationMsg},
-		{Slug: "workload-explicit-image-tag", DisplayName: "Images name a version", Description: "Warns on a container image with no image tag or digest, or with the latest image tag. Fix: set a version with `cub function set set-image-reference-by-uri <repository> :<version>`.",
-			Function: "vet-images", Arguments: []api.FunctionArgument{{ParameterName: "image-filter", Value: `{"DenyRegexp": "` + untaggedOrLatestImage + `"}`}}},
-		{Slug: "workload-database-statefulset", DisplayName: "Databases run as StatefulSets", Description: "Warns on a Deployment or ReplicaSet running a database image (postgres, mysql, mariadb, mongo, cassandra, ...). Fix: run it as a StatefulSet, with volumeClaimTemplates for its data.", Expression: celDatabaseStateful},
-		{Slug: "workload-pdb-coverage", DisplayName: "Workloads have a PodDisruptionBudget", Description: "Warns while a workload.confighub.com/pdb-coverage annotation is present (set by `cub manage workload guardrails annotate`). Fix: `cub manage workload ensure-pdb`, then re-run annotate.", Expression: celNoPDBFinding},
+	Checks: []guardrails.Check{
+		{Control: "CH-0320", Name: "workload-readonly-root-filesystem", Rule: "workload-readonly-root-filesystem",
+			DisplayName: "Containers have a read-only root filesystem",
+			Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, ResourceTypes: celrule.Controllers, Failures: celReadOnlyRootFS,
+			Fix:         "cub manage workload harden <space>/<unit>",
+			Corresponds: []string{"KS:C-0017", "KL:no-read-only-root-fs", "KY:require-ro-rootfs"}},
+		{Control: "CH-0332", Name: "workload-runs-nonroot", Rule: "workload-runs-nonroot",
+			DisplayName: "Workloads run as non-root",
+			Description: "Warns on a controller not running as non-root (pod or all containers). Fix: `cub manage workload harden <space>/<unit>`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, ResourceTypes: celrule.Controllers, Failures: celRunsNonRoot,
+			Fix:         "cub manage workload harden <space>/<unit>",
+			Corresponds: []string{"PSS:runAsNonRoot", "KL:run-as-non-root"}},
+		{Control: "CH-0340", Name: "workload-has-limits", Rule: "workload-has-limits",
+			DisplayName: "Containers set a memory limit",
+			Description: "Warns on a controller whose containers don't all set resources.limits.memory. Fix: `cub manage workload set-resources <space>/<unit>`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, ResourceTypes: celrule.Controllers, Failures: celHasLimits,
+			Fix:         "cub manage workload set-resources <space>/<unit>",
+			Corresponds: []string{"KS:C-0271", "KL:unset-memory-requirements", "GK:containerlimits"}},
+		{Control: "CH-0360", Name: "workload-pdb-coverage", Rule: "workload-pdb-coverage",
+			DisplayName: "Workloads have a PodDisruptionBudget",
+			Description: "Warns while a workload.confighub.com/pdb-coverage annotation is present (set by `cub manage workload guardrails annotate`). Fix: `cub manage workload ensure-pdb`, then re-run annotate.",
+			// guardrails annotate writes the finding on each resource of the Unit.
+			Engine: guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celNoPDBFinding,
+			Fix: "cub manage workload ensure-pdb"},
+		{Control: "CH-0361", Name: "workload-termination-message-policy", Rule: "workload-termination-message-policy",
+			DisplayName: "Containers fall back to logs for termination messages",
+			Description: "Warns on a controller whose containers don't all set terminationMessagePolicy: FallbackToLogsOnError. Fix: the termination-message-policy profile.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, ResourceTypes: celrule.Controllers, Failures: celTerminationMsg,
+			Fix: "the termination-message-policy profile"},
+		{Control: "CH-0362", Name: "workload-database-statefulset", Rule: "workload-database-statefulset",
+			DisplayName: "Databases run as StatefulSets",
+			Description: "Warns on a Deployment or ReplicaSet running a database image (postgres, mysql, mariadb, mongo, cassandra, ...). Fix: run it as a StatefulSet, with volumeClaimTemplates for its data.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium,
+			ResourceTypes: []string{"apps/v1/Deployment", "apps/v1/ReplicaSet"}, Failures: celDatabaseStateful},
+		{Control: "CH-0380", Name: "workload-explicit-image-tag", Rule: "workload-explicit-image-tag",
+			DisplayName: "Images name a version",
+			Description: "Warns on a container image with no image tag or digest, or with the latest image tag. Fix: set a version with `cub function set set-image-reference-by-uri <repository> :<version>`.",
+			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityMedium,
+			Function: "vet-images", Arguments: []api.FunctionArgument{{ParameterName: "image-filter", Value: `{"DenyRegexp": "` + untaggedOrLatestImage + `"}`}},
+			Fix:         "cub function set set-image-reference-by-uri <repository> :<version>",
+			Corresponds: []string{"KL:latest-tag", "KY:disallow-latest-tag", "GK:disallowedtags"}},
 	},
 }
 
