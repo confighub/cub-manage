@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-deployment
+  labels:
+    admission-policy-test: abc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      label: test-deployment
+  template:
+    metadata:
+      labels:
+        label: test-deployment
+    spec:
+      containers:
+      - name: sleep
+        image: alpine
+        command: ["sh"]
+        args: ["-c", "while true; do sleep 1; done"]
+        ports:
+        - containerPort: 8086
+        volumeMounts :
+        - mountPath : /test-pd
+          name : test-volume
+      volumes :
+        - name : test-volume
+        - name : test-volume-2

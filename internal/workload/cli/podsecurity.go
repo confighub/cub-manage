@@ -32,14 +32,33 @@ func podSecurityCheck(control, name, id, level, displayName, description string)
 	check := guardrails.Check{
 		Control: control, Name: name, DisplayName: displayName, Description: description,
 		Engine: guardrails.EnginePodSecurity, Level: level, PodSecurityCheck: id,
-		ResourceTypes: podSpecTypes, Corresponds: []string{"PSS:" + id},
+		ResourceTypes: podSpecTypes, Corresponds: append([]string{"PSS:" + id}, kubescapeControlsOf[id]...),
 	}
 	if level == "baseline" {
 		check.Rule, check.Priority = podSecurityBaselineRule, guardrails.PriorityHigh
 	} else {
 		check.Rule, check.Priority = podSecurityRestrictedRule, guardrails.PriorityMedium
+		// The restricted standard requires running as non-root, so a workload excepted from
+		// workload-runs-nonroot cannot meet any of it: one that runs as root sets runAsUser: 0,
+		// and usually needs the privileges the other restricted checks take away.
+		check.ExceptFrom = []string{"workload-runs-nonroot"}
 	}
 	return check
+}
+
+// kubescapeControlsOf are the Kubescape controls each Pod Security Standards check corresponds to,
+// by the check's ID, which is how a framework mapped to Kubescape's controls finds the check.
+var kubescapeControlsOf = map[string][]string{
+	"windowsHostProcess":        {"KS:C-0202"},
+	"hostNamespaces":            {"KS:C-0038", "KS:C-0041", "KS:C-0194", "KS:C-0195", "KS:C-0196", "KS:C-0214", "KS:C-0215", "KS:C-0216", "KS:C-0275", "KS:C-0276"},
+	"privileged":                {"KS:C-0057", "KS:C-0193", "KS:C-0213"},
+	"capabilities_baseline":     {"KS:C-0046", "KS:C-0200", "KS:C-0219"},
+	"hostPathVolumes":           {"KS:C-0048", "KS:C-0203"},
+	"hostPorts":                 {"KS:C-0044", "KS:C-0204"},
+	"allowPrivilegeEscalation":  {"KS:C-0016", "KS:C-0197", "KS:C-0217"},
+	"runAsNonRoot":              {"KS:C-0013", "KS:C-0198", "KS:C-0218"},
+	"seccompProfile_restricted": {"KS:C-0210"},
+	"capabilities_restricted":   {"KS:C-0199", "KS:C-0201", "KS:C-0220"},
 }
 
 // podSpecTypes are the resource types holding a PodSpec, which vet-pod-security-standard checks:

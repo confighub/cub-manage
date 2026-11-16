@@ -169,6 +169,9 @@ func TestPodSecurityChecks(t *testing.T) {
 		if check.Optional != (check.Name == "run-as-non-root") {
 			t.Errorf("check %s: Optional = %v", check.Name, check.Optional)
 		}
+		if restricted := check.Level == "restricted"; restricted != slices.Equal(check.ExceptFrom, []string{"workload-runs-nonroot"}) {
+			t.Errorf("check %s: ExceptFrom = %v", check.Name, check.ExceptFrom)
+		}
 		if !slices.Contains(check.ResourceTypes, "v1/Pod") || !slices.Contains(check.ResourceTypes, "batch/v1/CronJob") {
 			t.Errorf("check %s selects %v, not every type with a pod spec", check.Name, check.ResourceTypes)
 		}
