@@ -40,6 +40,15 @@ var Pack = guardrails.Pack{
 			ResourceTypes: []string{"autoscaling/v1/HorizontalPodAutoscaler", "autoscaling/v2/HorizontalPodAutoscaler", "keda.sh/v1alpha1/ScaledObject"},
 			Fix:           "cub manage autoscale set-hpa --min <lower> --max <higher>",
 			Failures:      celAutoscalerNotPinned},
+		{Control: "CH-1202", Name: "autoscale-min-replicas", Rule: "autoscale-min-replicas", DisplayName: "Autoscalers keep two replicas",
+			Description: "Warns on a HorizontalPodAutoscaler whose minReplicas is below 2, or unset, which is 1: at its minimum, one pod's loss is an outage. A KEDA ScaledObject may scale to zero by design, and is not checked. Fix: `cub manage autoscale set-hpa --min 2`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium,
+			ResourceTypes: []string{"autoscaling/v1/HorizontalPodAutoscaler", "autoscaling/v2/HorizontalPodAutoscaler"},
+			Fix:           "cub manage autoscale set-hpa --min 2",
+			Failures: celrule.When("!(has(r.spec) && has(r.spec.minReplicas) && r.spec.minReplicas >= 2)",
+				"["+celrule.Failure(celrule.Lit("spec.minReplicas"), "r.?spec.?minReplicas",
+					"'the autoscaler can scale down to ' + (has(r.spec) && has(r.spec.minReplicas) ? string(r.spec.minReplicas) : '1, as minReplicas is unset,') + ' replica'")+"]"),
+			Corresponds: []string{"SC:horizontalpodautoscaler-replicas", "KL:hpa-minimum-three-replicas"}},
 	},
 }
 
