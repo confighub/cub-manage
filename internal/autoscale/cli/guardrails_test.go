@@ -34,3 +34,10 @@ func TestAutoscalerNotPinned(t *testing.T) {
 func TestUnrelatedResourcesPass(t *testing.T) {
 	celruletest.UnrelatedResourcesPass(t, Pack)
 }
+
+func TestAutoscaleMinReplicas(t *testing.T) {
+	check := celruletest.Check(t, Pack, "autoscale-min-replicas")
+	celruletest.Expect(t, celruletest.EvalCheck(t, check, "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata:\n  name: web\nspec:\n  maxReplicas: 5\n"), "spec.minReplicas")
+	celruletest.Expect(t, celruletest.EvalCheck(t, check, "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata:\n  name: web\nspec:\n  minReplicas: 1\n  maxReplicas: 5\n"), "spec.minReplicas")
+	celruletest.Expect(t, celruletest.EvalCheck(t, check, "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata:\n  name: web\nspec:\n  minReplicas: 2\n  maxReplicas: 5\n"))
+}

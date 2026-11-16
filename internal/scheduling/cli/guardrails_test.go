@@ -93,3 +93,59 @@ spec:
 func TestUnrelatedResourcesPass(t *testing.T) {
 	celruletest.UnrelatedResourcesPass(t, Pack)
 }
+
+const spreadless = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 3
+  template:
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: example.com/rack
+          whenUnsatisfiable: DoNotSchedule
+        - maxSkew: 1
+          topologyKey: example.com/row
+          whenUnsatisfiable: ScheduleAnyway
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+            - topologyKey: example.com/room
+`
+
+func facts(kv ...string) map[string]any {
+	f := map[string]any{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		f[kv[i]] = kv[i+1]
+	}
+	return map[string]any{"TargetFacts": f}
+}
+
+func TestMoreSchedulingChecks(t *testing.T) {
+	keys := facts("Cluster.NodeLabelKeys", "kubernetes.io/hostname,topology.kubernetes.io/zone")
+	celruletest.Expect(t, celruletest.EvalCheckIn(t, keys, celruletest.Check(t, Pack, "topology-key-exists"), spreadless),
+		"spec.template.spec.topologySpreadConstraints.0.topologyKey",
+		"spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution.1.topologyKey")
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "topology-key-exists"), spreadless))
+
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "no-control-plane"), spreadless), "spec.template.spec.tolerations.0.key")
+
+	unspread := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n        - name: web\n"
+	spread := celruletest.Check(t, Pack, "replicas-spread")
+	celruletest.Expect(t, celruletest.EvalCheckIn(t, facts("Cluster.Distribution", "kubeadm"), spread, unspread), "spec.template.spec.topologySpreadConstraints")
+	for name, context := range map[string]map[string]any{
+		"managed":        facts("Cluster.Distribution", "eks"),
+		"default spread": facts("Cluster.Distribution", "kubeadm", "Scheduling.DefaultTopologySpread", "[]"),
+		"no facts":       {},
+	} {
+		t.Run(name, func(t *testing.T) { celruletest.Expect(t, celruletest.EvalCheckIn(t, context, spread, unspread)) })
+	}
+	celruletest.Expect(t, celruletest.EvalCheckIn(t, facts("Cluster.Distribution", "kubeadm"), spread, spreadless))
+}

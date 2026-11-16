@@ -31,6 +31,11 @@ var (
 		"!(has(r.metadata.labels) && '"+podSecurityEnforceLabel+"' in r.metadata.labels)",
 		"["+celrule.Failure(celrule.Lit(celrule.MapKeyPath("metadata.labels", podSecurityEnforceLabel)), celrule.None,
 			celrule.Lit("the Namespace has no "+podSecurityEnforceLabel+" label"))+"]")
+
+	celNotPrivileged = celrule.When(
+		"has(r.metadata.labels) && r.metadata.labels != null && r.metadata.labels[?'"+podSecurityEnforceLabel+"'].orValue('') == 'privileged'",
+		"["+celrule.Failure(celrule.Lit(celrule.MapKeyPath("metadata.labels", podSecurityEnforceLabel)), celrule.Some("'privileged'"),
+			celrule.Lit("the Namespace admits privileged pods: its enforce level is privileged"))+"]")
 )
 
 var Pack = guardrails.Pack{
@@ -46,6 +51,12 @@ var Pack = guardrails.Pack{
 			Description: "Warns on a workload that does not meet the Pod Security Standard level in its own pod-security.kubernetes.io/enforce label, which `cub manage namespace pod-security set` copies from its namespace -- so admission would reject its pods. Unlabeled workloads are not checked. Fix: `cub manage workload harden`, or what `cub manage namespace pod-security` lists.",
 			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityHigh, Function: VetPodSecurityFunction,
 			Fix: "cub manage workload harden"},
+		{Control: "CH-1003", Name: "namespace-not-privileged", Rule: "namespace-not-privileged", DisplayName: "Namespaces do not enforce privileged",
+			Description: "Warns on a Namespace whose pod-security.kubernetes.io/enforce level is privileged, which admits any pod. A namespace of node agents may need it, which is what an exception is for. Fix: `cub manage namespace pod-security set --namespace <ns>` to the level its workloads meet.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium,
+			ResourceTypes: []string{"v1/Namespace"}, Failures: celNotPrivileged,
+			Fix:         "cub manage namespace pod-security set --namespace <ns>",
+			Corresponds: []string{"CIS:5.2.1"}},
 	},
 }
 
@@ -81,6 +92,7 @@ once in a policy Space and enforced in each Space that opts into the group:
   namespace-pod-security-standard  a workload must meet the level in its own enforce
                                    label, which 'pod-security set' copies from its
                                    namespace
+  namespace-not-privileged         a Namespace's enforce level is not privileged
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking once its warnings are worked down with:

@@ -96,7 +96,7 @@ var Pack = guardrails.Pack{
 	Group:     "workload",
 	RuleInfo:  slices.Concat(podSecurityRules, kubescapeRules),
 	Libraries: []guardrails.PolicyLibrary{kubescapeLibrary},
-	Checks: slices.Concat(podSecurityChecks, kubescapeChecks, []guardrails.Check{
+	Checks: slices.Concat(podSecurityChecks, kubescapeChecks, moreChecks, []guardrails.Check{
 		{Control: "CH-0320", Name: "workload-readonly-root-filesystem", Rule: "workload-readonly-root-filesystem",
 			DisplayName: "Containers have a read-only root filesystem",
 			Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.",
@@ -148,24 +148,32 @@ func newGuardrailsCmd() *cobra.Command {
 		Use:   "guardrails",
 		Short: "Install, inspect, and feed the workload-readiness guardrail policy pack",
 		Long: `guardrails manages a pack of workload-readiness validation policies, defined once
-in a policy Space and enforced in each Space that opts into the group:
+in a policy Space and enforced in each Space that opts into the group. Its rules,
+by area ('guardrails status --by-rule' lists them with where each stands):
 
-  workload-has-limits                controller containers set a memory limit
-  workload-runs-nonroot              controller runs as non-root
-  workload-readonly-root-filesystem  containers have a read-only root filesystem
-  workload-termination-message-policy  containers set FallbackToLogsOnError
-  workload-explicit-image-tag        images name an image tag other than latest, or a digest
-  workload-database-statefulset      database images run in a StatefulSet or DaemonSet
-  workload-pdb-coverage              warns while a PDB-coverage finding is annotated
-  workload-pod-security-baseline     pods meet the baseline Pod Security Standard
-  workload-pod-security-restricted   pods meet what the restricted standard adds
-  no-cloud-credential-mounts         no hostPath to a cloud's credentials (Kubescape C-0020)
-  no-sudo-entrypoint                 no sudo in a container's command (Kubescape C-0062)
-  known-vulnerable-images            no Argo CD with CVE-2022-24348, no end of life
-                                     ingress-nginx (Kubescape C-0081, C-0292)
+  Pod Security  workload-pod-security-baseline, workload-pod-security-restricted
+  Hardening     workload-runs-nonroot, workload-readonly-root-filesystem,
+                no-runtime-socket, no-sensitive-host-paths, readonly-host-paths,
+                drop-net-raw, non-root-groups, dedicated-service-account,
+                no-ssh-port, no-cloud-credential-mounts and no-sudo-entrypoint
+                (Kubescape C-0020, C-0062), high-uid (optional)
+  Resources     workload-has-limits, requests, emptydir-size-limit,
+                ephemeral-storage and memory-request-equals-limit (optional)
+  Reliability   workload-pdb-coverage, workload-termination-message-policy,
+                workload-database-statefulset, readiness-probe, probes-differ,
+                pdb-unhealthy-eviction, replicas, rolling-update, no-bare-pods,
+                job-cleanup, liveness-probe and priority-class (optional)
+  Images        workload-explicit-image-tag, allowed-registries,
+                deprecated-registries, known-vulnerable-images (Kubescape C-0081,
+                C-0292), image-digest (optional, on released Units)
 
-The first six are plain per-resource checks (vet-cel, and vet-images for image
-tags) — a single Unit answers them, no annotation needed. workload-pdb-coverage realizes
+Optional checks are added with --check <name> or --all. Some take parameters:
+replicas.min and replicas.environments (default 2, in Spaces labeled
+Environment: prod), priority-class.allowed, and allowed-registries.registries,
+which is installed once given.
+
+All but workload-pdb-coverage are per-resource checks — a single Unit answers them,
+no annotation needed. workload-pdb-coverage realizes
 annotate-then-validate for the one property vet-cel can't see under
 one-resource-per-Unit: whether a *matching* PDB exists in some other Unit. 'guardrails annotate' writes that finding onto each
 uncovered workload Unit and this Trigger turns it into a warning.

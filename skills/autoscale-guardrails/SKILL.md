@@ -11,6 +11,7 @@ Turn the autoscaling anti-patterns into **enforcement** — advisory ValidationW
 
 - **`cub manage autoscale guardrails install`** — creates the `common` Space and a `Warn=true` Trigger, labeled `Pack: autoscale`, then adds the `autoscale` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
   - `autoscale-not-pinned` (`vet-cel`) — an HPA/ScaledObject must not have `min == max`.
+  - `autoscale-min-replicas` (`vet-cel`) — an HPA keeps at least 2 replicas (`minReplicas` unset is 1).
 - **`cub manage guardrails install`** — the tool-level `basic` group, opted into on its own. Among its rules:
   - `validate` (`vet-schemas`) — a resource must pass Kubernetes/CRD schema validation. This is the **post-convert check** for `convert-keda`: a committed ScaledObject fires the Mutation Trigger and is validated against `keda.sh`'s schema.
 - **`cub manage guardrails status`** — lists Units carrying autoscaling ValidationWarnings or ValidationErrors.

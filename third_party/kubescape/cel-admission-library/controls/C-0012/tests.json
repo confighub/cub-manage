@@ -1,0 +1,227 @@
+[
+    {
+        "name": "Pod with container having env with sensitive key name and non-empty value and not from sensitiveVlauesAllowed is blocked",
+        "template": "pod-for-list-items.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "spec.containers.[0].env.[0].value=randomValue"
+        ]
+    },
+    {
+        "name": "Pod with container having env with sensitive key name and value not set is allowed",
+        "template": "pod-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+        ]
+    },
+    {
+        "name": "Pod with container having env with sensitive key name and value set to empty string is allowed",
+        "template": "pod-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.containers.[0].env.[0].value=\"\""
+        ]
+    },
+    {
+        "name": "Pod with container having env with sensitive key name and non-empty value and from sensitiveVlauesAllowed is allowed",
+        "template": "pod-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.containers.[0].env.[0].value=test-value"
+        ]
+    },
+    {
+        "name": "Pod with container having env without sensitive key name is allowed",
+        "template": "pod.yaml",
+        "expected": "pass",
+        "field_change_list": [
+        ]
+    },
+    {
+        "name": "Deployment with container having env with sensitive key name and non-empty value and not from sensitiveVlauesAllowed is blocked",
+        "template": "deployment-for-list-items.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "spec.template.spec.containers.[0].env.[0].value=randomValue"
+        ]
+    },
+    {
+        "name": "Deployment with container having env with sensitive key name and value not set is allowed",
+        "template": "deployment-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+        ]
+    },
+    {
+        "name": "Deployment with container having env with sensitive key name and value set to empty string is allowed",
+        "template": "deployment-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.template.spec.containers.[0].env.[0].value=\"\""
+        ]
+    },
+    {
+        "name": "Deployment with container having env with sensitive key name and non-empty value and from sensitiveVlauesAllowed is allowed",
+        "template": "deployment-for-list-items.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.template.spec.containers.[0].env.[0].value=test-value"
+        ]
+    },
+    {
+        "name": "Deployment with container having env without sensitive key name is allowed",
+        "template": "deployment.yaml",
+        "expected": "pass",
+        "field_change_list": [
+        ]
+    },
+    {
+        "name": "ConfigMap without data having sensitiveKey and not matching sensitiveValues is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey and empty value is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.password=\"\""
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey and value not from sensitiveValuesAllowed is denied",
+        "template": "configmap.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "data.password=password123"
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey and value from sensitiveValuesAllowed is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.password=encrypted-password"
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey matching sensitiveValues and empty value is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.topsecret=\"\""
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey matching sensitiveValues and value not from sensitiveValuesAllowed is denied",
+        "template": "configmap.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "data.topsecret=password123"
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey matching sensitiveValues and value from sensitiveValuesAllowed is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.topsecret=encrypted-password"
+        ]
+    },
+    {
+        "name": "ConfigMap with data having sensitiveKey matching sensitiveKeyNames and sensitiveKeyNamesAllowed is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.top-secret-allowed=password123"
+        ]
+    },
+    {
+        "name": "Pod having initContainer with env with sensitive key name and non-empty value and not from sensitiveValuesAllowed is blocked",
+        "template": "pod-with-init-container.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.initContainers.[0].env.[0].value=randomValue"
+        ]
+    },
+    {
+        "name": "Pod having initContainer with env with sensitive key name and non-empty value and from sensitiveValuesAllowed is allowed",
+        "template": "pod-with-init-container.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.initContainers.[0].env.[0].value=test-value"
+        ]
+    },
+    {
+        "name": "Deployment having initContainer with env with sensitive key name and non-empty value and not from sensitiveValuesAllowed is blocked",
+        "template": "deployment.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "spec.template.spec.initContainers.[0].name=init",
+            "spec.template.spec.initContainers.[0].image=alpine",
+            "spec.template.spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.template.spec.initContainers.[0].env.[0].value=randomValue"
+        ]
+    },
+    {
+        "name": "Deployment having initContainer with env with sensitive key name and non-empty value and from sensitiveValuesAllowed is allowed",
+        "template": "deployment.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.template.spec.initContainers.[0].name=init",
+            "spec.template.spec.initContainers.[0].image=alpine",
+            "spec.template.spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.template.spec.initContainers.[0].env.[0].value=test-value"
+        ]
+    },
+    {
+        "name": "CronJob having initContainer with env with sensitive key name and non-empty value and not from sensitiveValuesAllowed is blocked",
+        "template": "cronjob.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].name=init",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].image=alpine",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].env.[0].value=randomValue"
+        ]
+    },
+    {
+        "name": "CronJob having initContainer with env with sensitive key name and non-empty value and from sensitiveValuesAllowed is allowed",
+        "template": "cronjob.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].name=init",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].image=alpine",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].env.[0].name=azure_batch_key",
+            "spec.jobTemplate.spec.template.spec.initContainers.[0].env.[0].value=test-value"
+        ]
+    },
+    {
+        "name": "ConfigMap with a private key as the value of a non-sensitive key name is denied",
+        "template": "configmap.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "data.tls_pem=-----BEGIN RSA PRIVATE KEY-----"
+        ]
+    },
+    {
+        "name": "ConfigMap with a bearer token as the value of a non-sensitive key name is denied",
+        "template": "configmap.yaml",
+        "expected": "fail",
+        "field_change_list": [
+            "data.auth_header=Bearer abc123"
+        ]
+    },
+    {
+        "name": "ConfigMap with a non-sensitive key name and a value matching no sensitiveValues entry is allowed",
+        "template": "configmap.yaml",
+        "expected": "pass",
+        "field_change_list": [
+            "data.log_level=debug"
+        ]
+    }
+]

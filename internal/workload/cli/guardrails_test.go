@@ -72,27 +72,61 @@ kind: StatefulSet
 metadata:
   name: db
 spec:
+  replicas: 3
   template:
     spec:
+      serviceAccountName: db
+      priorityClassName: high
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: certs
+          hostPath:
+            path: /etc/ssl/certs
       containers:
         - name: db
-          image: postgres:16
+          image: ghcr.io/example/postgres:16@sha256:0123456789abcdef
           terminationMessagePolicy: FallbackToLogsOnError
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            tcpSocket:
+              port: postgres
+          livenessProbe:
+            exec:
+              command: [pg_isready]
+          volumeMounts:
+            - name: certs
+              mountPath: /etc/ssl/certs
+              readOnly: true
           securityContext:
             readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 1Gi
             limits:
               memory: 1Gi
+              ephemeral-storage: 2Gi
 `
+	given := map[string]string{"allowed": "high", "registries": "ghcr.io/example"}
 	for _, check := range Pack.Checks {
 		// The database check's rule does not select StatefulSets.
 		if check.Engine != guardrails.EngineCEL || len(check.ResourceTypes) > 0 && !slices.Contains(check.ResourceTypes, "apps/v1/StatefulSet") {
 			continue
 		}
 		t.Run(check.Name, func(t *testing.T) {
-			celruletest.Expect(t, celruletest.EvalCheck(t, check, compliant))
+			celruletest.Expect(t, celruletest.EvalCheckWith(t, map[string]any{}, given, check, compliant))
 		})
 	}
 }
