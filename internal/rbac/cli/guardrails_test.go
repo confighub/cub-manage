@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/confighub/cub-manage/internal/celrule/celruletest"
@@ -59,4 +60,80 @@ func TestRBACRulesPass(t *testing.T) {
 
 func TestUnrelatedResourcesPass(t *testing.T) {
 	celruletest.UnrelatedResourcesPass(t, Pack)
+}
+
+const riskyRole = `apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: risky
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/approval"]
+    verbs: ["update"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    verbs: ["approve"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["create"]
+`
+
+const riskyBinding = `apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: risky
+  namespace: shop
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: Group
+    name: system:authenticated
+  - kind: User
+    name: system:anonymous
+  - kind: Group
+    name: system:masters
+  - kind: ServiceAccount
+    name: default
+    namespace: shop
+`
+
+// Each RBAC check fails the rules and subjects that violate it, by index.
+func TestMoreRBACChecksFail(t *testing.T) {
+	for check, paths := range map[string][]string{
+		"rbac-nodes-proxy":                     {"rules.0.resources"},
+		"rbac-csr-approval":                    {"rules.1.resources", "rules.2.resources"},
+		"rbac-endpoints-edit":                  {"rules.3.resources"},
+		"rbac-secrets-access":                  {"rules.4.resources"},
+		"rbac-pod-create":                      {"rules.5.resources"},
+		"rbac-no-anonymous-subjects":           {"subjects.1.name"},
+		"rbac-no-system-masters":               {"subjects.2.name"},
+		"rbac-default-service-account-unbound": {"subjects.3.name"},
+		"rbac-no-cluster-admin-binding":        {"roleRef.name"},
+	} {
+		t.Run(check, func(t *testing.T) {
+			resource := riskyRole
+			if strings.HasPrefix(paths[0], "subjects") || strings.HasPrefix(paths[0], "roleRef") {
+				resource = riskyBinding
+			}
+			celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, check), resource), paths...)
+		})
+	}
+	// Reading Secrets it may only create, and a binding with no subjects, pass.
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "rbac-secrets-access"),
+		"apiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata:\n  name: writer\nrules:\n  - resources: [secrets]\n    verbs: [create]\n"))
+	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "rbac-no-anonymous-subjects"),
+		"apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  name: none\nroleRef:\n  name: view\n"))
 }
