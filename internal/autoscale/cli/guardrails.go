@@ -61,10 +61,11 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages a pack of autoscaling validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
-  autoscale-not-pinned   an HPA/ScaledObject must not have min == max (it would
-                         be unable to scale) — a per-resource vet-cel check
+  autoscale-not-pinned    an HPA/ScaledObject must not have min == max (it would
+                          be unable to scale) — a per-resource vet-cel check
+  autoscale-min-replicas  an HPA keeps at least 2 replicas
 
-The rule is created with Warn=true (advisory ValidationWarnings, never blocking).
+The rules are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote it to blocking with:
 cub manage guardrails update autoscale-not-pinned --enforce --commit
 

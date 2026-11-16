@@ -92,6 +92,7 @@ once in a policy Space and enforced in each Space that opts into the group:
   namespace-pod-security-standard  a workload must meet the level in its own enforce
                                    label, which 'pod-security set' copies from its
                                    namespace
+  namespace-not-privileged         a Namespace's enforce level is not privileged
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking once its warnings are worked down with:

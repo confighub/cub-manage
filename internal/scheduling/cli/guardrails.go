@@ -168,14 +168,18 @@ policy Space and enforced in each Space that opts into the group:
                                               select the workload's own Pods
   scheduling-min-domains-needs-donotschedule  minDomains only with
                                               whenUnsatisfiable DoNotSchedule
+  replicas-spread                             replicas spread across nodes, where
+                                              the cluster spreads nothing itself
+  topology-key-exists                         a hard constraint's topologyKey is a
+                                              label the Target's nodes carry
+  no-control-plane                            no toleration of the control-plane taint
 
 Each rule is a plain per-resource vet-cel check (a single Unit answers it), created
 with Warn=true (advisory ValidationWarnings, never blocking). Promote one to blocking
 with: cub trigger update <slug> --space <policy-space> --unwarn
 
-The checks that need a cluster's facts (a topologyKey no node carries, minDomains
-above the zone count) are in 'findings', since a Trigger sees one Unit and not its
-cluster.
+replicas-spread and topology-key-exists read the facts of the Unit's Target, and
+pass where there are none. minDomains above the zone count is in 'findings'.
 
 Except one resource from a rule with 'cub manage guardrails exception add';
 'cub manage guardrails exception list' shows what is excepted, and why.`,

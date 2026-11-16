@@ -145,9 +145,18 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages a small pack of RBAC validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
-  rbac-no-wildcards              no wildcard verbs/resources/apiGroups
-  rbac-no-privilege-escalation   no escalate/bind/impersonate verbs
-  rbac-no-cluster-admin-binding  no ClusterRoleBindings to cluster-admin
+  rbac-no-wildcards                     no wildcard verbs/resources/apiGroups
+  rbac-no-privilege-escalation          no escalate/bind/impersonate verbs
+  rbac-no-cluster-admin-binding         no bindings to cluster-admin
+  rbac-no-anonymous-subjects            no bindings to system:anonymous or
+                                        system:unauthenticated
+  rbac-no-system-masters                no bindings to system:masters
+  rbac-nodes-proxy                      no nodes/proxy access
+  rbac-csr-approval                     no approving certificate signing requests
+  rbac-endpoints-edit                   no writing Endpoints or EndpointSlices
+  rbac-secrets-access                   no reading Secrets
+  rbac-default-service-account-unbound  no roles bound to a default ServiceAccount
+  rbac-pod-create                       no creating pods (optional: --check)
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking), so
 installing on an existing fleet never blocks anyone. Promote one to blocking

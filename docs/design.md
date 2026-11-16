@@ -125,7 +125,7 @@ leaves in place. A resource is excepted from one rule by the annotation
 exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
 takes `--resource` whenever the Unit holds more than one, and `list` reads every exception back
 with its reason, and counts the exceptions to each rule, including the rules that have none.
-Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6).
+Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6). So are the packs no command group owns -- `exposure` (Services, Ingresses, Gateways), `secrets`, `metadata` and `storage` -- each installed with `cub manage guardrails <pack> install` and opted into on its own.
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
 as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each attribute that failed
@@ -183,6 +183,7 @@ Tool commands are the ones that would otherwise be identical in every group:
 | `preflight`                             | Verify the ConfigHub session against the server                              |
 | `version`                               | Print the version                                                            |
 | `guardrails install`                    | Install the tool-level `basic` group, whose rules are about every resource or Unit |
+| `guardrails <pack> install`             | Install the `exposure`, `secrets`, `metadata` or `storage` pack, which no command group owns |
 | `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to; with `--by-rule`, each rule's stage (Created, Audited, Enforced, Disabled), priority, due date, and Units passed, warned and blocked; with `--framework`, each control of a framework (CIS benchmarks, NSA, MITRE, SOC 2, from Kubescape's mappings) by the checks corresponding to it and their rules' stages |
 | `guardrails exception add` / `remove`   | Except one resource from one rule of any group, with the reason; remove it   |
 | `guardrails exception list`             | Every resource excepted from a rule, with its reason, and the count per rule |
