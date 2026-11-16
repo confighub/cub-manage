@@ -183,7 +183,7 @@ Tool commands are the ones that would otherwise be identical in every group:
 | `preflight`                             | Verify the ConfigHub session against the server                              |
 | `version`                               | Print the version                                                            |
 | `guardrails install`                    | Install the tool-level `basic` group, whose rules are about every resource or Unit |
-| `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to; with `--by-rule`, each rule's stage (Created, Audited, Enforced, Disabled), priority, due date, and Units passed, warned and blocked |
+| `guardrails status`                     | The Units any guardrail has marked, whichever group the rule belongs to; with `--by-rule`, each rule's stage (Created, Audited, Enforced, Disabled), priority, due date, and Units passed, warned and blocked; with `--framework`, each control of a framework (CIS benchmarks, NSA, MITRE, SOC 2, from Kubescape's mappings) by the checks corresponding to it and their rules' stages |
 | `guardrails exception add` / `remove`   | Except one resource from one rule of any group, with the reason; remove it   |
 | `guardrails exception list`             | Every resource excepted from a rule, with its reason, and the count per rule |
 | `guardrails update`                     | Set a rule's priority and the date it is due to be enforced; enforce it, or return it to audit |

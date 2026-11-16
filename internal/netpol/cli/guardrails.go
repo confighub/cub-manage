@@ -158,7 +158,7 @@ var Pack = guardrails.Pack{
 		{Control: "CH-0506", Name: "netpol-ingress-coverage", Rule: "netpol-ingress-coverage", DisplayName: "Workloads have an ingress NetworkPolicy",
 			Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.",
 			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, Failures: celNoCoverageFinding,
-			Corresponds: []string{"SC:pod-networkpolicy"}},
+			Corresponds: []string{"SC:pod-networkpolicy", "KS:C-0206", "KS:C-0260"}},
 	},
 }
 

@@ -108,7 +108,7 @@ var Pack = guardrails.Pack{
 			Description: "Warns on a controller not running as non-root (pod or all containers). Fix: `cub manage workload harden <space>/<unit>`.",
 			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, ResourceTypes: celrule.Controllers, Failures: celRunsNonRoot,
 			Fix:         "cub manage workload harden <space>/<unit>",
-			Corresponds: []string{"PSS:runAsNonRoot", "KL:run-as-non-root"}},
+			Corresponds: []string{"PSS:runAsNonRoot", "KL:run-as-non-root", "KS:C-0013", "KS:C-0198", "KS:C-0218"}},
 		{Control: "CH-0340", Name: "workload-has-limits", Rule: "workload-has-limits",
 			DisplayName: "Containers set a memory limit",
 			Description: "Warns on a controller whose containers don't all set resources.limits.memory. Fix: `cub manage workload set-resources <space>/<unit>`.",

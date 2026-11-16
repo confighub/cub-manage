@@ -26,6 +26,7 @@ import (
 	rbac "github.com/confighub/cub-manage/internal/rbac/cli"
 	scheduling "github.com/confighub/cub-manage/internal/scheduling/cli"
 	workload "github.com/confighub/cub-manage/internal/workload/cli"
+	"github.com/confighub/cub-manage/third_party/kubescape/regolibrary"
 )
 
 // library is every command group's profiles as one library. 'profile install'
@@ -84,7 +85,9 @@ resource or every Unit rather than one group's kinds:
 'status' lists the Units any Trigger has marked, whichever group it belongs to.
 'status --by-rule' reports where each rule stands instead -- Created, Audited,
 Enforced or Disabled -- with its priority, the date it is due to be enforced,
-and how many Units it passes, warns on and blocks.
+and how many Units it passes, warns on and blocks. 'status --framework cis-v1.12'
+reports each control of a framework -- the CIS benchmarks, NSA, MITRE, SOC 2 --
+by the checks that correspond to it and how far their rules have got.
 
 'exception' excepts a resource from one rule of any group, removes an exception,
 and lists every resource excepted and why.
@@ -92,7 +95,7 @@ and lists every resource excepted and why.
 'update' sets a rule's priority and the date it is due to be enforced, and
 enforces it once its warnings are worked down.`,
 	}
-	cmd.AddCommand(basicPack.InstallCmd(cub.Preflight), guardrails.Pack{}.StatusCmd(cub.Preflight),
+	cmd.AddCommand(basicPack.InstallCmd(cub.Preflight), guardrails.StatusCmd(cub.Preflight, allPacks, regolibrary.Frameworks()),
 		guardrails.ExceptionCmd(cub.Preflight, allPacks...),
 		guardrails.UpdateCmd(cub.Preflight, allPacks...))
 	return cmd
