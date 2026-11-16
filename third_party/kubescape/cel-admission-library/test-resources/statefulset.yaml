@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: test-statefulset
+  labels:
+    admission-policy-test: abc
+spec:
+  serviceName: test-statefulset
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-statefulset
+  template:
+    metadata:
+      labels:
+        app: test-statefulset
+    spec:
+      containers:
+      - name: sleep
+        image: alpine
+        command: ["sh"]
+        args: ["-c", "while true; do sleep 1; done"]

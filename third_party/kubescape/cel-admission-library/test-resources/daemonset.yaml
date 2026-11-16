@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: test-daemonset
+  labels:
+    admission-policy-test: abc
+spec:
+  selector:
+    matchLabels:
+      app: test-daemonset
+  template:
+    metadata:
+      labels:
+        app: test-daemonset
+    spec:
+      containers:
+      - name: sleep
+        image: alpine
+        command: ["sh"]
+        args: ["-c", "while true; do sleep 1; done"]

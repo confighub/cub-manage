@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-deployment
+  labels:
+    admission-policy-test: abc
+    app.kubernetes.io/name: myApp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-deployment
+  template:
+    metadata:
+      labels:
+        app: test-deployment
+        app.kubernetes.io/name: myApp
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/sleep: runtime/default
+    spec:
+      containers:
+      - name: sleep
+        image: alpine
+        command: ["sudo","sh"]
+        args: ["-c", "while true; do sleep 1; done"]
+        securityContext:
+          capabilities:
+            add:
+            - SYS_ADM
+            - NET_RAW
+        env :
+        - name : azure_batch_key

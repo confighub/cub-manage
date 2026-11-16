@@ -93,9 +93,10 @@ var celDatabaseStateful = celrule.When(
 const untaggedOrLatestImage = `(:latest$)|^([^/]+/)*[^/:@]+$`
 
 var Pack = guardrails.Pack{
-	Group:    "workload",
-	RuleInfo: podSecurityRules,
-	Checks: slices.Concat(podSecurityChecks, []guardrails.Check{
+	Group:     "workload",
+	RuleInfo:  slices.Concat(podSecurityRules, kubescapeRules),
+	Libraries: []guardrails.PolicyLibrary{kubescapeLibrary},
+	Checks: slices.Concat(podSecurityChecks, kubescapeChecks, []guardrails.Check{
 		{Control: "CH-0320", Name: "workload-readonly-root-filesystem", Rule: "workload-readonly-root-filesystem",
 			DisplayName: "Containers have a read-only root filesystem",
 			Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.",
@@ -158,6 +159,10 @@ in a policy Space and enforced in each Space that opts into the group:
   workload-pdb-coverage              warns while a PDB-coverage finding is annotated
   workload-pod-security-baseline     pods meet the baseline Pod Security Standard
   workload-pod-security-restricted   pods meet what the restricted standard adds
+  no-cloud-credential-mounts         no hostPath to a cloud's credentials (Kubescape C-0020)
+  no-sudo-entrypoint                 no sudo in a container's command (Kubescape C-0062)
+  known-vulnerable-images            no Argo CD with CVE-2022-24348, no end of life
+                                     ingress-nginx (Kubescape C-0081, C-0292)
 
 The first six are plain per-resource checks (vet-cel, and vet-images for image
 tags) — a single Unit answers them, no annotation needed. workload-pdb-coverage realizes
@@ -174,6 +179,13 @@ leaves out run-as-non-root, which workload-runs-nonroot checks; add it with
 'guardrails install --check run-as-non-root'. It also skips the resources excepted
 from workload-runs-nonroot: a workload that has to run as root cannot meet the
 restricted standard.
+
+The Kubescape rules run Kubescape's ValidatingAdmissionPolicies, the ones a cluster
+can enforce at admission, with vet-validating-admission-policy. Install writes them
+into the policy Space as the Unit guardrails-workload-kubescape, and their
+parameters as guardrails-kubescape-params, which install creates once and leaves
+for you to edit: set settings.cloudProvider (eks, aks or gke) there for
+no-cloud-credential-mounts to know which paths hold credentials.
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:

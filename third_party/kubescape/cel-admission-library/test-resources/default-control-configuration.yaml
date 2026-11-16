@@ -1,0 +1,135 @@
+apiVersion: "kubescape.io/v1"
+kind: ControlConfiguration
+metadata:
+  name: placeholder
+settings:
+  hardenedSandboxRuntimeClasses:
+  - gvisor
+  cpuLimitMax: 5
+  cpuLimitMin: 1
+  cpuRequestMax: 5
+  cpuRequestMin: 0.1
+  imageRepositoryAllowList:
+  - gcr.io
+  - docker.io # Not in Kubescape's initial configuration but added to test as this is an edge case.
+  insecureCapabilities:
+  - SETPCAP
+  - NET_ADMIN
+  - NET_RAW
+  - SYS_MODULE
+  - SYS_RAWIO
+  - SYS_PTRACE
+  - SYS_ADMIN
+  - SYS_BOOT
+  - MAC_OVERRIDE
+  - MAC_ADMIN
+  - PERFMON
+  - ALL
+  - BPF
+  k8sRecommendedLabels:
+  - app.kubernetes.io/name
+  - app.kubernetes.io/instance
+  - app.kubernetes.io/version
+  - app.kubernetes.io/component
+  - app.kubernetes.io/part-of
+  - app.kubernetes.io/managed-by
+  - app.kubernetes.io/created-by
+  listOfDangerousArtifacts:
+  - bin/bash
+  - sbin/sh
+  - bin/ksh
+  - bin/tcsh
+  - bin/zsh
+  - usr/bin/scsh
+  - bin/csh
+  - bin/busybox
+  - usr/bin/busybox
+  maxCriticalVulnerabilities:
+  - 5
+  maxHighVulnerabilities:
+  - 10
+  memoryLimitMax: 4Gi
+  memoryLimitMin: 0.25Gi
+  memoryRequestMax: 4Gi
+  memoryRequestMin: 0.125Gi
+  publicRegistries:
+  - docker.io
+  - gcr.io
+  - quay.io
+  - registry.hub.docker.com
+  recommendedLabels:
+  - app
+  - tier
+  - phase
+  - version
+  - owner
+  - env
+  sensitiveInterfaces:
+  - nifi
+  - argo-server
+  - weave-scope-app
+  - kubeflow
+  - kubernetes-dashboard
+  - jenkins
+  - prometheus-deployment
+  sensitiveKeyNames:
+  - aws_access_key_id
+  - aws_secret_access_key
+  - azure_batchai_storage_account
+  - azure_batchai_storage_key
+  - azure_batch_account
+  - azure_batch_key
+  - secret
+  - key
+  - password
+  - pwd
+  - token
+  - jwt
+  - bearer
+  - credential
+  sensitiveKeyNamesAllowed:
+  - top-secret-allowed
+  sensitiveValues:
+  - BEGIN \w+ PRIVATE KEY
+  - PRIVATE KEY
+  - eyJhbGciO
+  - JWT
+  - Bearer
+  - _key_
+  - _secret_
+  sensitiveValuesAllowed:
+  - test-value
+  - encrypted-password
+  servicesNames:
+  - nifi-service
+  - argo-server
+  - minio
+  - postgres
+  - workflow-controller-metrics
+  - weave-scope-app
+  - kubernetes-dashboard
+  untrustedRegistries:
+  - docker.io
+  - gcr.io
+  - quay.io
+  - registry.hub.docker.com
+  wlKnownNames:
+  - coredns
+  - kube-proxy
+  - event-exporter-gke
+  - kube-dns
+  - 17-default-backend
+  - metrics-server
+  - ca-audit
+  - ca-dashboard-aggregator
+  - ca-notification-server
+  - ca-ocimage
+  - ca-oracle
+  - ca-posture
+  - ca-rbac
+  - ca-vuln-scan
+  - ca-webhook
+  - ca-websocket
+  - clair-clair
+
+  cloudProvider: aks
