@@ -38,6 +38,10 @@ func podSecurityCheck(control, name, id, level, displayName, description string)
 		check.Rule, check.Priority = podSecurityBaselineRule, guardrails.PriorityHigh
 	} else {
 		check.Rule, check.Priority = podSecurityRestrictedRule, guardrails.PriorityMedium
+		// The restricted standard requires running as non-root, so a workload excepted from
+		// workload-runs-nonroot cannot meet any of it: one that runs as root sets runAsUser: 0,
+		// and usually needs the privileges the other restricted checks take away.
+		check.ExceptFrom = []string{"workload-runs-nonroot"}
 	}
 	return check
 }

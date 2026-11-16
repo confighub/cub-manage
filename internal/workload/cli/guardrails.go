@@ -171,7 +171,9 @@ words (privileged, host-path-volumes, run-as-user, ...), and each finding by the
 itself. Stage one check ahead of the rest of its level with
 'cub manage guardrails update <rule> --separate <check>'. The restricted rule
 leaves out run-as-non-root, which workload-runs-nonroot checks; add it with
-'guardrails install --check run-as-non-root'.
+'guardrails install --check run-as-non-root'. It also skips the resources excepted
+from workload-runs-nonroot: a workload that has to run as root cannot meet the
+restricted standard.
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:
