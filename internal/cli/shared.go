@@ -60,6 +60,9 @@ group installs its own pack, so a Space can opt into some and not others:
 
   cub manage <group> guardrails install
 
+and the packs no command group owns -- exposure, secrets, metadata, storage --
+with 'cub manage guardrails <pack> install'.
+
 'install' installs the tool-level basic group, whose rules are about every
 resource or every Unit rather than one group's kinds:
 
@@ -95,6 +98,11 @@ and lists every resource excepted and why.
 'update' sets a rule's priority and the date it is due to be enforced, and
 enforces it once its warnings are worked down.`,
 	}
+	for _, tp := range toolPacks {
+		sub := &cobra.Command{Use: tp.pack.Group, Short: "The " + tp.pack.Group + " guardrail pack: " + tp.short}
+		sub.AddCommand(tp.pack.InstallCmd(cub.Preflight))
+		cmd.AddCommand(sub)
+	}
 	cmd.AddCommand(basicPack.InstallCmd(cub.Preflight), guardrails.StatusCmd(cub.Preflight, allPacks, regolibrary.Frameworks()),
 		guardrails.ExceptionCmd(cub.Preflight, allPacks...),
 		guardrails.UpdateCmd(cub.Preflight, allPacks...))
@@ -103,4 +111,5 @@ enforces it once its warnings are worked down.`,
 
 // allPacks are every tool's guardrail packs.
 var allPacks = []guardrails.Pack{basicPack, workload.Pack, scheduling.Pack, autoscale.Pack,
-	observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack}
+	observability.Pack, rbac.Pack, netpol.Pack, nsmanager.Pack,
+	exposurePack, secretsPack, metadataPack, storagePack}
