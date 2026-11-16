@@ -72,6 +72,14 @@ resource or every Unit rather than one group's kinds:
                            on the Units released to a Target
   vet-immutable            Immutable fields are unchanged (vet-immutable),
                            on the Units released to a Target
+  served-api               The Target cluster serves each API version (vet-cel
+                           over the Target's facts), on the Units released to it
+  deprecated-api           No deprecated API versions (vet-correctness)
+  correctness              Resources are what the API server accepts
+                           (vet-correctness): selectors, label and name syntax,
+                           port names and references, volume references,
+                           required choices, ConfigMap size, CronJobs, and
+                           deprecated fields, each a check of its own
 
 'status' lists the Units any Trigger has marked, whichever group it belongs to.
 'status --by-rule' reports where each rule stands instead -- Created, Audited,

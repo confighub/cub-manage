@@ -528,6 +528,7 @@ own, rather than part of the pack of a group a Space opts into for other reasons
 | `vet-immutable`          | Immutable fields are unchanged            | `vet-immutable`, on Units released to a Target               |
 | `served-api`             | The Target cluster serves each API version | `vet-cel`, on Units released to a Target: each resource's `apiVersion` and `kind` is among the types the Target's `Cluster.*ResourceTypes` and `Cluster.*CRDs` facts list; a Target without them passes |
 | `deprecated-api`         | No deprecated API versions                | `vet-correctness` `check=deprecated-api`: a type, or a version of one, the resource type specs declare deprecated |
+| `correctness`            | Resources are what the API server accepts | `vet-correctness`, ten checks sharing the rule, each named in its findings: `selector-matches-template`, `label-syntax`, `name-syntax`, `port-names`, `port-references`, `volume-references`, `exactly-one-of`, `configmap-size`, `cronjob`, `deprecated-fields` |
 
 The slugs are those of the Triggers these rules were first written as, by hand, so installing the
 group where those Triggers exist updates them in place, keeping whether each warns or blocks,

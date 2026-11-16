@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/confighub/sdk/core/function/api"
@@ -43,8 +44,9 @@ var celServedAPI = func() string {
 // copy. vet-namespace-required is numbered in the metadata block: it moves to
 // the metadata pack, beside the other namespace checks, once that pack exists.
 var basicPack = guardrails.Pack{
-	Group: "basic",
-	Checks: []guardrails.Check{
+	Group:    "basic",
+	RuleInfo: []guardrails.RuleInfo{correctnessRule},
+	Checks: slices.Concat(correctnessChecks, []guardrails.Check{
 		{Control: "CH-0101", Name: "validate", Rule: "validate", DisplayName: "Resources match their schemas",
 			Description: "Fails a resource that does not pass its Kubernetes or CRD schema, including the KEDA ScaledObjects `cub manage autoscale convert-keda` writes. Fix: correct the fields the result names.",
 			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityHigh, Function: "vet-schemas"},
@@ -77,5 +79,41 @@ var basicPack = guardrails.Pack{
 			Description: "Warns on a resource whose type, or the version of it, is deprecated, with the warning Kubernetes gives for it: a built-in type ConfigHub's resource type specs declare deprecated, such as v1/ComponentStatus, or a CRD version its CRD marks deprecated, for the CRDs in those specs. Fix: move the resource to the replacement the warning names.",
 			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityMedium,
 			Function: "vet-correctness", Arguments: []api.FunctionArgument{{ParameterName: "check", Value: "deprecated-api"}}},
-	},
+	}),
+}
+
+// correctnessRule runs the checks of what the API server would reject, or would accept and
+// silently ignore, which vet-correctness reads from the resource type specs. They have few false
+// positives, so the rule is the first to enforce. Its checks are in the correctness block of
+// control numbers, though they install with the basic group.
+var correctnessRule = guardrails.RuleInfo{Slug: "correctness", DisplayName: "Resources are what the API server accepts",
+	Description: "Fails a resource the Kubernetes API server would reject, or would accept and silently ignore part of: a selector that does not select its own pods, an invalid label, name or port name, a reference to a port or volume that is not there, a missing required field, an oversized ConfigMap, a CronJob that cannot run, or a deprecated field set without its replacement. Each finding names the check it fails."}
+
+// correctnessCheck is the vet-correctness check name, in the correctness rule.
+func correctnessCheck(control, name, priority, displayName, description string) guardrails.Check {
+	return guardrails.Check{Control: control, Name: name, Rule: correctnessRule.Slug, DisplayName: displayName, Description: description,
+		Engine: guardrails.EngineFunction, Priority: priority, Function: "vet-correctness", FunctionCheck: name}
+}
+
+var correctnessChecks = []guardrails.Check{
+	correctnessCheck("CH-0201", "selector-matches-template", guardrails.PriorityHigh, "Selectors select their own pods",
+		"Fails a controller, such as a Deployment or StatefulSet, whose selector does not select the labels of its own pod template, which the API server rejects. Fix: make the template's labels match the selector."),
+	correctnessCheck("CH-0202", "label-syntax", guardrails.PriorityHigh, "Labels are valid",
+		"Fails a label whose key is not a valid qualified name, with an optional DNS subdomain prefix, or whose value is longer than 63 characters or has characters a label value cannot. Fix: shorten or rewrite the label."),
+	correctnessCheck("CH-0203", "name-syntax", guardrails.PriorityHigh, "Names have the form of their type",
+		"Fails a metadata.name the API server would reject for the resource type: a DNS subdomain for most types, a DNS label for a Namespace, a DNS-1035 label for a Service. A placeholder passes. Fix: rename the resource."),
+	correctnessCheck("CH-0204", "port-names", guardrails.PriorityHigh, "Container port names are valid",
+		"Fails a container port name that is not an IANA service name, at most 15 lowercase letters, digits and dashes with a letter, or that the container uses twice. Fix: rename the port, and what refers to it."),
+	correctnessCheck("CH-0205", "port-references", guardrails.PriorityHigh, "Probes name ports their container has",
+		"Fails a probe or lifecycle handler that names a port its container does not declare, so the kubelet cannot reach it. Fix: name a declared port, or use its number."),
+	correctnessCheck("CH-0206", "volume-references", guardrails.PriorityHigh, "Volume mounts name volumes of the pod",
+		"Fails a volume mount or volume device that names no volume of its pod, which the API server rejects. Fix: add the volume, or correct the name."),
+	correctnessCheck("CH-0207", "exactly-one-of", guardrails.PriorityMedium, "Required choices are made",
+		"Fails an object with none of the fields of a group of which it needs one, such as a PodDisruptionBudget with neither minAvailable nor maxUnavailable, which protects nothing. Fix: set one of them."),
+	correctnessCheck("CH-0208", "configmap-size", guardrails.PriorityHigh, "ConfigMaps fit in 1 MiB",
+		"Fails a ConfigMap whose data and binaryData hold more than 1 MiB, more than the API server accepts. Fix: split it, or move the data to a volume."),
+	correctnessCheck("CH-0209", "cronjob", guardrails.PriorityHigh, "CronJobs can run",
+		"Fails a CronJob whose schedule does not parse, whose timeZone is not a known time zone, or whose pods restart Always, which a Job does not allow. Fix: correct the schedule, the time zone, or set restartPolicy to OnFailure or Never."),
+	correctnessCheck("CH-0210", "deprecated-fields", guardrails.PriorityLow, "No deprecated fields without their replacements",
+		"Fails a field the API has superseded set without the field that replaces it, such as serviceAccount without serviceAccountName. Fix: set the replacement, and remove the deprecated field."),
 }

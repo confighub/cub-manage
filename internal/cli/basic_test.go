@@ -5,6 +5,8 @@ package cli
 
 import (
 	"regexp"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/confighub/cub-manage/internal/celrule/celruletest"
@@ -94,5 +96,25 @@ func TestDisplayNamesAreValid(t *testing.T) {
 				t.Errorf("rule %s: DisplayName %q is not one the server accepts", rule.Slug, rule.DisplayName)
 			}
 		}
+	}
+}
+
+// The correctness rule runs every check of vet-correctness but deprecated-api, which is a rule of
+// its own, each named by the check the function knows it by.
+func TestCorrectnessRule(t *testing.T) {
+	var names []string
+	for _, check := range basicPack.Checks {
+		if check.Rule != "correctness" {
+			continue
+		}
+		if check.Function != "vet-correctness" || check.FunctionCheck != check.Name || !strings.HasPrefix(check.Control, "CH-02") {
+			t.Errorf("check %s = %+v", check.Name, check)
+		}
+		names = append(names, check.Name)
+	}
+	want := []string{"selector-matches-template", "label-syntax", "name-syntax", "port-names", "port-references",
+		"volume-references", "exactly-one-of", "configmap-size", "cronjob", "deprecated-fields"}
+	if !slices.Equal(names, want) {
+		t.Errorf("correctness runs %v, want %v", names, want)
 	}
 }
