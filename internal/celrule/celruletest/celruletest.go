@@ -46,6 +46,12 @@ func Eval(t *testing.T, expression, resourceYAML string) Result {
 // FunctionContext as vet-cel sees it: a map of its JSON fields, such as TargetFacts.
 func EvalIn(t *testing.T, functionContext map[string]any, expression, resourceYAML string) Result {
 	t.Helper()
+	return EvalWith(t, functionContext, map[string]any{}, expression, resourceYAML)
+}
+
+// EvalWith is EvalIn with params, as vet-cel takes them: each a string, keyed <check>.<name>.
+func EvalWith(t *testing.T, functionContext, params map[string]any, expression, resourceYAML string) Result {
+	t.Helper()
 	env, err := cel.NewEnv(
 		cel.DefaultUTCTimeZone(true),
 		cel.CrossTypeNumericComparisons(true),
@@ -75,7 +81,7 @@ func EvalIn(t *testing.T, functionContext map[string]any, expression, resourceYA
 		t.Fatalf("resource: %v", err)
 	}
 	val, _, err := program.Eval(map[string]any{
-		"r": resource, "object": resource, "params": map[string]any{}, "functionContext": functionContext,
+		"r": resource, "object": resource, "params": params, "functionContext": functionContext,
 	})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -180,7 +186,22 @@ func EvalCheck(t *testing.T, check guardrails.Check, resourceYAML string) Result
 // EvalCheckIn is EvalCheck with functionContext, as EvalIn takes it.
 func EvalCheckIn(t *testing.T, functionContext map[string]any, check guardrails.Check, resourceYAML string) Result {
 	t.Helper()
-	result := EvalIn(t, functionContext, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
+	return EvalCheckWith(t, functionContext, nil, check, resourceYAML)
+}
+
+// EvalCheckWith is EvalCheckIn with the check's parameters: given, by name, and the defaults of
+// the rest, as install writes them.
+func EvalCheckWith(t *testing.T, functionContext map[string]any, given map[string]string, check guardrails.Check, resourceYAML string) Result {
+	t.Helper()
+	params := map[string]any{}
+	for _, p := range check.Params {
+		value, ok := given[p.Name]
+		if !ok {
+			value = p.Default
+		}
+		params[check.Name+"."+p.Name] = value
+	}
+	result := EvalWith(t, functionContext, params, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
 	for _, a := range result.FailedAttributes {
 		if !reflect.DeepEqual(a.Checks, []string{check.Name}) {
 			t.Errorf("the failure at %s names checks %q, want %s", a.Path, a.Checks, check.Name)

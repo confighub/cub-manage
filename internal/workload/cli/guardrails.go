@@ -96,7 +96,7 @@ var Pack = guardrails.Pack{
 	Group:     "workload",
 	RuleInfo:  slices.Concat(podSecurityRules, kubescapeRules),
 	Libraries: []guardrails.PolicyLibrary{kubescapeLibrary},
-	Checks: slices.Concat(podSecurityChecks, kubescapeChecks, []guardrails.Check{
+	Checks: slices.Concat(podSecurityChecks, kubescapeChecks, moreChecks, []guardrails.Check{
 		{Control: "CH-0320", Name: "workload-readonly-root-filesystem", Rule: "workload-readonly-root-filesystem",
 			DisplayName: "Containers have a read-only root filesystem",
 			Description: "Warns on a controller whose containers don't all set securityContext.readOnlyRootFilesystem: true. Fix: `cub manage workload harden <space>/<unit>`, which sets it where unset; for a container that writes to its filesystem, mount an emptyDir where it writes, or except it with `cub manage guardrails exception add`.",
