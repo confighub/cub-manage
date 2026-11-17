@@ -4,20 +4,14 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"sigs.k8s.io/yaml"
 
-	"github.com/confighub/sdk/core/cubapi"
-	api "github.com/confighub/sdk/core/function/api"
-	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
 	"github.com/confighub/sdk/managerkit"
 	"github.com/confighub/sdk/managerkit/write"
 
@@ -28,7 +22,7 @@ import (
 )
 
 func newAllowFromRefsCmd() *cobra.Command {
-	var output, clusterFilter, namespaceFilter, controller string
+	var output, clusterFilter, namespaceFilter, controller, rolloutSlug, policySpace string
 	var noUpstream bool
 	var filter kit.FilterFlags
 	var commit write.CommitFlags
@@ -63,10 +57,22 @@ Sources are selected by their namespace's name and their own pod selector, which
 are the same in every cluster a workload is deployed to. So when every variant
 of an upstream Unit -- each Unit cloned from it -- would take the same edit, and
 the upstream's policies are the same as theirs, the edit is made to the upstream
-instead, for the variants to take by an upgrade; when the upstream has the edit
-already, nothing is written, and the report says the variants are to be
-upgraded. --no-upstream edits the variants themselves. A Unit imported from elsewhere may need its write guarded,
-as in --guard Override=External --clearance Override=External.
+instead; and when every variant would get the same new policy, it is created in
+the upstream's Space. --no-upstream changes the variants themselves.
+
+The changes in each base, the upstream's Space, are made in a ChangeSet, which is
+then closed, and named by a ChangeOrder adopting its end Tag, to be promoted to
+the variants stage by stage with 'cub variant promote <variant> --change-order
+<base>/<rollout>'. Both are named --rollout and annotated Trigger=<space>/<slug>
+with the guardrail Triggers whose findings the changes fix
+(netpol-no-allow-all-ingress for an edit, netpol-ingress-coverage for a new
+policy). The ChangeOrder follows the ChangeWorkflow of the base's Component:
+the one kept in the base, or the only one it allows. A base with none, or with
+a ChangeSet or ChangeOrder of that name already, is reported and not changed.
+When the upstream has the change already, nothing is written, and the report
+says to promote it. --changeset applies to the changes made directly. A Unit
+imported from elsewhere may need its write guarded, as in --guard
+Override=External --clearance Override=External.
 
 The report lists the connections found, the policy changes, who gains and loses
 access to each destination as the model of the policies sees it (ports aside;
@@ -98,20 +104,29 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 			if err != nil {
 				return err
 			}
+			ctx := cmd.Context()
 			plans := planRefs(snap, clusterFilter, namespaceFilter, controller)
-			edits, err := planUnitEdits(cmd.Context(), client, plans, noUpstream)
+			l, err := loadLineage(ctx, client, plannedUnitIDs(plans))
 			if err != nil {
 				return err
 			}
-			creates, err := planCreates(snap, plans)
+			edits, err := planUnitEdits(ctx, client, l, plans, noUpstream)
 			if err != nil {
 				return err
 			}
-			results, err := writeRefPlans(cmd.Context(), client, edits, creates, ch)
+			creates, err := planCreates(ctx, client, l, snap, plans, noUpstream)
 			if err != nil {
 				return err
 			}
-			rep := newRefsReport(plans, edits, creates)
+			rollouts, err := planRollouts(ctx, client, edits, creates, rolloutSlug, policySpace)
+			if err != nil {
+				return err
+			}
+			results, err := writeRefPlans(ctx, client, edits, creates, rollouts, rolloutSlug, ch)
+			if err != nil {
+				return err
+			}
+			rep := newRefsReport(plans, edits, creates, rollouts, rolloutSlug, ch.DryRun())
 			if output != managerkit.OutputTable {
 				result := write.Summarize("allow-from-refs", "", ch.DryRun(), results...)
 				rep.Result = &result
@@ -128,7 +143,9 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 	kit.AddClusterFlag(cmd, &clusterFilter)
 	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "only destinations in this namespace")
 	cmd.Flags().StringVar(&controller, "ingress-controller", "", "the workload serving every route, as <namespace>/<workload>, when its image does not say")
-	cmd.Flags().BoolVar(&noUpstream, "no-upstream", false, "edit each variant's policies, even when every variant would take the same edit from its upstream Unit")
+	cmd.Flags().BoolVar(&noUpstream, "no-upstream", false, "change each variant's policies, even when every variant would take the same change from its upstream Unit")
+	cmd.Flags().StringVar(&rolloutSlug, "rollout", "netpol-allow-from-refs", "name of the ChangeSet and ChangeOrder each base's changes are made in")
+	cmd.Flags().StringVar(&policySpace, "policy-space", "", "Space of the netpol guardrail Triggers the rollouts are annotated with (default: wherever the organization has them)")
 	commit.Bind(cmd)
 	return cmd
 }
@@ -168,320 +185,17 @@ func planRefs(snap *snapshot.Snapshot, clusterFilter, namespaceFilter, controlle
 	return plans
 }
 
-// unitEdit is the policy edits one Unit takes.
-type unitEdit struct {
-	spaceID  string
-	space    string
-	unitID   string
-	unit     string
-	edits    []*netpol.PolicyEdit
-	exprs    []string
-	clusters []string
-	// variants are the Units that take the edit from this one, their upstream,
-	// by an upgrade rather than being edited.
-	variants []string
-	// note says why a variant is edited rather than its upstream.
-	note string
-	// done is whether the upstream has the edit already, and only its variants
-	// lack it, until they are upgraded.
-	done bool
-}
-
-func (u *unitEdit) key() string { return strings.Join(u.exprs, "\n") }
-
-// planUnitEdits groups the policy edits by the Unit holding the policy, and
-// moves the edits of the variants of an upstream Unit to the upstream when they
-// all take the same one.
-func planUnitEdits(ctx context.Context, c *cubapi.Client, plans []netpol.IngressPlan, noUpstream bool) ([]*unitEdit, error) {
-	byUnit := map[string]*unitEdit{}
-	for _, p := range plans {
-		for _, e := range p.Edits {
-			o := e.Policy.Origin
-			u := byUnit[o.UnitID]
-			if u == nil {
-				u = &unitEdit{spaceID: o.SpaceID, space: o.Space, unitID: o.UnitID, unit: o.UnitSlug}
-				byUnit[o.UnitID] = u
-			}
-			u.edits = append(u.edits, e)
-			u.exprs = append(u.exprs, e.YQ())
-			if !containsString(u.clusters, p.Cluster) {
-				u.clusters = append(u.clusters, p.Cluster)
-			}
-		}
-	}
-	if !noUpstream && len(byUnit) > 0 {
-		if err := moveToUpstreams(ctx, c, byUnit); err != nil {
-			return nil, err
-		}
-	}
-	out := make([]*unitEdit, 0, len(byUnit))
-	for _, u := range byUnit {
-		out = append(out, u)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].space+"/"+out[i].unit < out[j].space+"/"+out[j].unit })
-	return out, nil
-}
-
-// moveToUpstreams replaces the edits of an upstream Unit's variants with one
-// edit to the upstream, when every variant takes the same edit and the
-// upstream's policies are the same as theirs, so the edit means the same there.
-func moveToUpstreams(ctx context.Context, c *cubapi.Client, byUnit map[string]*unitEdit) error {
-	ids := make([]string, 0, len(byUnit))
-	for id := range byUnit {
-		ids = append(ids, id)
-	}
-	edited, err := listUnitsIn(ctx, c, "UnitID", ids, "UnitID,SpaceID,Slug,UpstreamUnitID", "")
-	if err != nil {
-		return err
-	}
-	var upstreamIDs []string
-	for _, u := range edited {
-		if u.Unit.UpstreamUnitID != nil && !containsString(upstreamIDs, u.Unit.UpstreamUnitID.String()) {
-			upstreamIDs = append(upstreamIDs, u.Unit.UpstreamUnitID.String())
-		}
-	}
-	if len(upstreamIDs) == 0 {
-		return nil
-	}
-	sort.Strings(upstreamIDs)
-	upstreams, err := listUnitsIn(ctx, c, "UnitID", upstreamIDs, "UnitID,SpaceID,Slug", "SpaceID")
-	if err != nil {
-		return err
-	}
-	variants, err := listUnitsIn(ctx, c, "UpstreamUnitID", upstreamIDs, "UnitID,SpaceID,Slug,UpstreamUnitID", "SpaceID")
-	if err != nil {
-		return err
-	}
-	variantsOf := map[string][]*goclientnew.ExtendedUnit{}
-	for _, v := range variants {
-		up := v.Unit.UpstreamUnitID.String()
-		variantsOf[up] = append(variantsOf[up], v)
-	}
-	for _, up := range upstreams {
-		upID := up.Unit.UnitID.String()
-		vs := variantsOf[upID]
-		if len(vs) == 0 || byUnit[upID] != nil {
-			// An upstream with policy edits of its own is deployed too; its
-			// variants are edited themselves.
-			continue
-		}
-		upName := spaceSlugOf(up) + "/" + up.Unit.Slug
-		note := sameEditNote(byUnit, vs, upName)
-		done := false
-		if note == "" {
-			first := byUnit[vs[0].Unit.UnitID.String()]
-			if done, note, err = upstreamState(ctx, c, up, first); err != nil {
-				return err
-			}
-		}
-		if note != "" {
-			for _, v := range vs {
-				if u := byUnit[v.Unit.UnitID.String()]; u != nil {
-					u.note = note
-				}
-			}
-			continue
-		}
-		first := byUnit[vs[0].Unit.UnitID.String()]
-		moved := &unitEdit{
-			spaceID: up.Unit.SpaceID.String(), space: spaceSlugOf(up), unitID: upID, unit: up.Unit.Slug,
-			edits: first.edits, exprs: first.exprs, done: done,
-		}
-		for _, v := range vs {
-			u := byUnit[v.Unit.UnitID.String()]
-			moved.variants = append(moved.variants, u.space+"/"+u.unit)
-			for _, cl := range u.clusters {
-				if !containsString(moved.clusters, cl) {
-					moved.clusters = append(moved.clusters, cl)
-				}
-			}
-			delete(byUnit, v.Unit.UnitID.String())
-		}
-		sort.Strings(moved.variants)
-		byUnit[upID] = moved
-	}
-	return nil
-}
-
-// sameEditNote says why the variants of an upstream do not all take the same
-// edit, empty when they do.
-func sameEditNote(byUnit map[string]*unitEdit, variants []*goclientnew.ExtendedUnit, upName string) string {
-	var first *unitEdit
-	for _, v := range variants {
-		u := byUnit[v.Unit.UnitID.String()]
-		name := spaceSlugOf(v) + "/" + v.Unit.Slug
-		if u == nil {
-			return fmt.Sprintf("%s, another variant of %s, takes no edit: it is out of scope, or its policies or routes differ", name, upName)
-		}
-		if first == nil {
-			first = u
-			continue
-		}
-		if u.key() != first.key() {
-			return fmt.Sprintf("variants of %s take different edits: %s/%s and %s", upName, first.space, first.unit, name)
-		}
-	}
-	return ""
-}
-
-// upstreamState compares the upstream's policies with a variant's. The edit
-// means the same in the upstream when each of its policies has the variant's
-// ingress rules; done is whether each has the rules the edit leaves instead, so
-// that the variants take it by an upgrade with no edit. Otherwise note says why
-// -- a policy the upstream lacks, or whose rules are neither.
-func upstreamState(ctx context.Context, c *cubapi.Client, up *goclientnew.ExtendedUnit, variant *unitEdit) (done bool, note string, err error) {
-	ref := cub.UnitRef{SpaceID: up.Unit.SpaceID, SpaceSlug: spaceSlugOf(up), UnitID: up.Unit.UnitID, UnitSlug: up.Unit.Slug}
-	data, _, err := cub.GetUnitData(ctx, c, ref)
-	if err != nil {
-		return false, "", err
-	}
-	var resources []netpol.FleetResource
-	for _, doc := range cub.SplitDocuments(data) {
-		var m map[string]any
-		if yaml.Unmarshal([]byte(doc), &m) == nil && m != nil {
-			resources = append(resources, netpol.FleetResource{Doc: m})
-		}
-	}
-	policies := map[string]*netpol.NetworkPolicyEntity{}
-	for _, cl := range netpol.BuildFleet(resources) {
-		for _, p := range cl.NetworkPolicies {
-			policies[p.Name] = p
-		}
-	}
-	done, note = compareUpstream(ref.SpaceSlug+"/"+ref.UnitSlug, policies, variant.edits)
-	return done, note, nil
-}
-
-// compareUpstream is upstreamState's comparison of the upstream's policies,
-// by name, with a variant's edits.
-func compareUpstream(name string, policies map[string]*netpol.NetworkPolicyEntity, edits []*netpol.PolicyEdit) (done bool, note string) {
-	same, edited := 0, 0
-	for _, e := range edits {
-		p := policies[e.Policy.Name]
-		switch {
-		case p == nil:
-			return false, fmt.Sprintf("the upstream, %s, has no policy %s", name, e.Policy.Name)
-		case netpol.IngressKey(p) == netpol.IngressKey(e.Policy):
-			same++
-		case netpol.IngressKey(p) == e.ResultKey():
-			edited++
-		default:
-			return false, fmt.Sprintf("the upstream, %s, has policy %s with other ingress rules than its variants", name, e.Policy.Name)
-		}
-	}
-	if same > 0 && edited > 0 {
-		return false, fmt.Sprintf("the upstream, %s, has some of the edits and not others", name)
-	}
-	return edited > 0, ""
-}
-
-// listUnitsIn lists the Units whose field is one of values, a hundred values to
-// a request.
-func listUnitsIn(ctx context.Context, c *cubapi.Client, field string, values []string, sel, include string) ([]*goclientnew.ExtendedUnit, error) {
-	var out []*goclientnew.ExtendedUnit
-	for start := 0; start < len(values); start += 100 {
-		units, err := cubapi.ListUnits(ctx, c, cubapi.Where{}.InStrings(field, values[start:min(start+100, len(values))]),
-			cubapi.ListOpts{Select: sel, Include: include})
-		if err != nil {
-			return nil, err
-		}
-		for _, u := range units {
-			if u.Unit != nil {
-				out = append(out, u)
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return spaceSlugOf(out[i])+"/"+out[i].Unit.Slug < spaceSlugOf(out[j])+"/"+out[j].Unit.Slug
-	})
-	return out, nil
-}
-
-func spaceSlugOf(u *goclientnew.ExtendedUnit) string {
-	if u.Space != nil {
-		return u.Space.Slug
-	}
-	return u.Unit.SpaceID.String()
-}
-
-// refCreate is a new policy Unit, in the Space of the workload it selects.
-type refCreate struct {
-	cluster string
-	create  *netpol.PolicyCreate
-	dest    createDest
-}
-
-func planCreates(snap *snapshot.Snapshot, plans []netpol.IngressPlan) ([]refCreate, error) {
-	var out []refCreate
-	for _, p := range plans {
-		for _, cr := range p.Creates {
-			meta, ok := snap.Units[cr.Dest.Origin.UnitID]
-			if !ok {
-				continue
-			}
-			dest, err := destFromUnitMeta(meta)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, refCreate{cluster: p.Cluster, create: cr, dest: dest})
-		}
-	}
-	return out, nil
-}
-
-// writeRefPlans makes the edits, each Unit's in one write, and the creates.
-func writeRefPlans(ctx context.Context, c *cubapi.Client, edits []*unitEdit, creates []refCreate, ch cubapi.Change) ([]*cubapi.Result, error) {
-	ids := make([]string, 0, len(edits))
-	for _, u := range edits {
-		if !u.done {
-			ids = append(ids, u.unitID)
-		}
-	}
-	if err := cub.OpenChangeSetFirst(ctx, c, ch, ids); err != nil {
-		return nil, err
-	}
-	var results []*cubapi.Result
-	for _, u := range edits {
-		if u.done {
-			continue
-		}
-		spaceID, err := uuid.Parse(u.spaceID)
-		if err != nil {
-			return nil, fmt.Errorf("space ID %q: %w", u.spaceID, err)
-		}
-		fns := make([]api.FunctionInvocation, 0, len(u.exprs))
-		for _, expr := range u.exprs {
-			fns = append(fns, api.FunctionInvocation{
-				FunctionName:  "set-yq",
-				Arguments:     []api.FunctionArgument{{ParameterName: "yq-expression", Value: expr}},
-				WhereResource: cub.WhereResourceTypes(cub.NetworkPolicyResourceType),
-			})
-		}
-		res, err := cub.InvokeMutations(ctx, c, fns, cub.UnitSelector(spaceID, u.unit), ch)
-		if err != nil {
-			return nil, fmt.Errorf("edit the policies of %s/%s: %w", u.space, u.unit, err)
-		}
-		results = append(results, res)
-	}
-	if len(creates) > 0 {
-		creations := make([]cub.Creation, 0, len(creates))
-		for _, cr := range creates {
-			creations = append(creations, policyCreation(cr.dest, cr.create.Name, cr.create.YAML()))
-		}
-		results = append(results, cub.EnsureUnits(ctx, c, creations, ch))
-	}
-	return results, nil
-}
-
 // refsReport is what allow-from-refs found and did.
 type refsReport struct {
 	Flows    []refFlow        `json:"flows"`
 	Policies []refPolicy      `json:"policies"`
 	Writes   []refWrite       `json:"writes"`
+	Rollouts []refRollout     `json:"rollouts,omitempty"`
 	Access   []refAccess      `json:"access"`
 	Blocked  []refFlow        `json:"blocked,omitempty"`
 	Skipped  []netpol.RefSkip `json:"skipped,omitempty"`
 	Result   *write.Report    `json:"result,omitempty"`
+	dryRun   bool
 }
 
 type refFlow struct {
@@ -505,13 +219,31 @@ type refPolicy struct {
 
 type refWrite struct {
 	Unit     string   `json:"unit"`
+	Action   string   `json:"action"`
 	Clusters []string `json:"clusters"`
 	Policies []string `json:"policies"`
+	// Variants are the Spaces that take the change from the Unit, an upstream,
+	// by promotion.
 	Variants []string `json:"variants,omitempty"`
-	Note     string   `json:"note,omitempty"`
-	// Done is whether the Unit, an upstream, has the edit already, and is not
-	// written: its variants take it by an upgrade.
+	// Rollout is the ChangeOrder the change is made in, as space/slug, empty
+	// for a change made directly.
+	Rollout string `json:"rollout,omitempty"`
+	Note    string `json:"note,omitempty"`
+	// Done is whether the Unit, an upstream, has the change already, and is
+	// not written: its variants are yet to take it.
 	Done bool `json:"done,omitempty"`
+}
+
+type refRollout struct {
+	Base      string   `json:"base"`
+	Component string   `json:"component,omitempty"`
+	Workflow  string   `json:"workflow,omitempty"`
+	Rollout   string   `json:"rollout"`
+	Triggers  []string `json:"triggers,omitempty"`
+	// ChangeOrder is the ChangeOrder made, as space/slug.
+	ChangeOrder string `json:"changeOrder,omitempty"`
+	Problem     string `json:"problem,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type refAccess struct {
@@ -524,7 +256,7 @@ type refAccess struct {
 	WasOpen bool `json:"wasOpen"`
 }
 
-func newRefsReport(plans []netpol.IngressPlan, edits []*unitEdit, creates []refCreate) refsReport {
+func newRefsReport(plans []netpol.IngressPlan, edits []*unitEdit, creates []*refCreate, rollouts []*baseRollout, slug string, dryRun bool) refsReport {
 	rep := refsReport{Flows: []refFlow{}, Policies: []refPolicy{}, Writes: []refWrite{}, Access: []refAccess{}}
 	for _, p := range plans {
 		for _, f := range p.Flows {
@@ -548,20 +280,61 @@ func newRefsReport(plans []netpol.IngressPlan, edits []*unitEdit, creates []refC
 		}
 		rep.Skipped = append(rep.Skipped, p.Skipped...)
 	}
-	for _, cr := range creates {
-		rep.Policies = append(rep.Policies, refPolicy{
-			Cluster: cr.cluster, Action: "create", Policy: netpol.NamespaceOf(cr.create.Dest.Namespace) + "/" + cr.create.Name,
-			Unit: cr.dest.spaceSlug + "/" + cr.create.Name, Added: len(cr.create.Rules),
-		})
+	for _, p := range plans {
+		for _, cr := range p.Creates {
+			rep.Policies = append(rep.Policies, refPolicy{
+				Cluster: p.Cluster, Action: "create", Policy: netpol.NamespaceOf(cr.Dest.Namespace) + "/" + cr.Name,
+				Unit: cr.Dest.Origin.Space + "/" + cr.Name, Added: len(cr.Rules),
+			})
+		}
+	}
+	rolloutOf := func(spaceSlug string, inBase bool) string {
+		if !inBase {
+			return ""
+		}
+		return spaceSlug + "/" + slug
 	}
 	for _, u := range edits {
-		w := refWrite{Unit: u.space + "/" + u.unit, Clusters: u.clusters, Variants: u.variants, Note: u.note, Done: u.done}
+		w := refWrite{
+			Unit: u.space + "/" + u.unit, Action: "edit", Clusters: u.clusters, Variants: u.variants,
+			Rollout: rolloutOf(u.space, u.inBase()), Note: u.note, Done: u.done,
+		}
 		for _, e := range u.edits {
 			w.Policies = append(w.Policies, e.Policy.Name)
 		}
 		rep.Writes = append(rep.Writes, w)
 	}
+	for _, cr := range creates {
+		rep.Writes = append(rep.Writes, refWrite{
+			Unit: cr.dest.spaceSlug + "/" + cr.create.Name, Action: "create", Clusters: cr.clusters,
+			Policies: []string{cr.create.Name}, Variants: cr.variants,
+			Rollout: rolloutOf(cr.dest.spaceSlug, cr.inBase()), Note: cr.note, Done: cr.done,
+		})
+	}
+	for _, r := range rollouts {
+		rep.Rollouts = append(rep.Rollouts, refRollout{
+			Base: r.base.SpaceSlug, Component: r.base.Component, Workflow: r.base.Workflow, Rollout: slug,
+			Triggers: r.triggers, ChangeOrder: r.changeOrder, Problem: r.base.Problem, Error: r.err,
+		})
+	}
+	rep.dryRun = dryRun
 	return rep
+}
+
+// plannedUnitIDs are the Units a plan edits, and those of the workloads it
+// creates policies for.
+func plannedUnitIDs(plans []netpol.IngressPlan) []string {
+	var ids []string
+	for _, p := range plans {
+		for _, e := range p.Edits {
+			ids = appendNew(ids, e.Policy.Origin.UnitID)
+		}
+		for _, cr := range p.Creates {
+			ids = appendNew(ids, cr.Dest.Origin.UnitID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func newRefFlow(cluster string, f netpol.Flow) refFlow {
@@ -609,22 +382,51 @@ func printRefsReport(out io.Writer, rep refsReport) {
 	}
 
 	if len(rep.Writes) > 0 {
-		section("Units the edits are made in:")
-		fmt.Fprintln(tw, "UNIT\tPOLICIES\tFOR")
+		section("Units the changes are made in:")
+		fmt.Fprintln(tw, "UNIT\tACTION\tPOLICIES\tFOR\tIN")
 		for _, w := range rep.Writes {
 			forWhat := strings.Join(w.Clusters, ", ")
+			if len(w.Variants) > 0 {
+				forWhat = "variants " + strings.Join(w.Variants, ", ")
+			}
+			in := "directly"
 			switch {
 			case w.Done:
-				forWhat = "has the edit already: upgrade variants " + strings.Join(w.Variants, ", ")
-			case len(w.Variants) > 0:
-				forWhat = "variants " + strings.Join(w.Variants, ", ") + ", by an upgrade"
+				in = "made already: promote it"
+			case w.Rollout != "":
+				in = "ChangeSet and ChangeOrder " + w.Rollout
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", w.Unit, strings.Join(w.Policies, ", "), forWhat)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", w.Unit, w.Action, strings.Join(w.Policies, ", "), forWhat, in)
 		}
 		flush()
 		for _, w := range rep.Writes {
 			if w.Note != "" {
-				kit.Fprintln(out, fmt.Sprintf("  %s is edited itself: %s", w.Unit, w.Note))
+				kit.Fprintln(out, fmt.Sprintf("  %s is changed itself, not its upstream: %s", w.Unit, w.Note))
+			}
+		}
+	}
+
+	if len(rep.Rollouts) > 0 {
+		section("Rollouts from bases:")
+		fmt.Fprintln(tw, "BASE\tCOMPONENT\tCHANGEWORKFLOW\tTRIGGER\tSTATUS")
+		for _, r := range rep.Rollouts {
+			status := "ChangeOrder " + r.ChangeOrder + " created"
+			switch {
+			case r.Problem != "":
+				status = "not changed: " + r.Problem
+			case r.Error != "":
+				status = "failed: " + r.Error
+			case rep.dryRun:
+				status = "would make ChangeSet and ChangeOrder " + r.Base + "/" + r.Rollout
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Base, kit.Dash(r.Component), kit.Dash(r.Workflow), kit.Dash(strings.Join(r.Triggers, ",")), status)
+		}
+		flush()
+		if !rep.dryRun {
+			for _, r := range rep.Rollouts {
+				if r.ChangeOrder != "" {
+					kit.Fprintln(out, fmt.Sprintf("  promote it stage by stage: cub variant promote <variant> --change-order %s", r.ChangeOrder))
+				}
 			}
 		}
 	}

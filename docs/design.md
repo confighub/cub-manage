@@ -125,7 +125,7 @@ leaves in place. A resource is excepted from one rule by the annotation
 exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
 takes `--resource` whenever the Unit holds more than one, and `list` reads every exception back
 with its reason, and counts the exceptions to each rule, including the rules that have none.
-Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6). So are the packs no command group owns -- `exposure` (Services, Ingresses, Gateways), `secrets`, `metadata` and `storage` -- each installed with `cub manage guardrails <pack> install` and opted into on its own.
+Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6). So are the packs no command group owns -- `exposure` (Services, Ingresses, Gateways, and Traefik's IngressRoutes), `secrets`, `metadata` and `storage` -- each installed with `cub manage guardrails <pack> install` and opted into on its own.
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
 as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each attribute that failed
@@ -255,6 +255,14 @@ Override=External` on what a command writes into it, or the next upload removes 
 change selects, all of them or none -- a Unit is in one ChangeSet at a time -- and leaves it open,
 and a dry run refuses as the commit would.
 
+A change made in a base, a Space whose Units have variants, is made the way ConfigHub promotes
+changes: in a ChangeSet in the base, which is then closed, and named by a ChangeOrder adopting
+the ChangeSet's end Tag, to be promoted to the variants stage by stage along the ChangeWorkflow of
+the base's Component -- the one kept in the base, or the only one the Component allows. Both are
+named alike and annotated `Trigger=<space>/<slug>` with the guardrail Triggers whose findings the
+change fixes. `internal/cub/rollout.go` creates them; `netpol allow-from-refs` is the first command
+that writes this way.
+
 ### 5.4 Arguments and names
 
 - A command that writes to one Unit takes it as `<space>/<unit>`.
@@ -381,10 +389,14 @@ to each destination, and which connections the source's own egress policies stil
 
 A source is selected by its namespace's name and its own pod selector, which are the same in every
 cluster the workload is deployed to, so the variants of one upstream Unit usually take the same
-edit. When all of them do, and the upstream's policies are the same as theirs, the edit is made to
-the upstream, for the variants to take by an upgrade; when the upstream has the edit already,
-nothing is written, and the report says to upgrade the variants. A created policy is a new Unit in each
-variant's Space. Other references a policy could be derived from -- admission webhooks and
+edit. When all of them do -- and the upstream too, when it is deployed itself -- and the upstream's
+policies are the same as theirs, the edit is made to the upstream; likewise a policy every variant
+would get is created once, in the upstream's Space, when the upstream's workload is in the same
+namespace with the same labels. The changes in each base are made in a ChangeSet and promoted by a
+ChangeOrder, as above, annotated with `netpol-no-allow-all-ingress` for an edit and
+`netpol-ingress-coverage` for a new policy; promoting the ChangeOrder clones the new policy Units
+into the variants. When the upstream has the change already, nothing is written, and the report
+says to promote it. Otherwise each variant is changed itself. Other references a policy could be derived from -- admission webhooks and
 APIServices, which the API server calls, and Service addresses in a workload's environment and
 arguments -- and the egress allows a controller with egress policies needs, are not read yet.
 
