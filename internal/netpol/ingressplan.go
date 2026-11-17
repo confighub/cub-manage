@@ -267,6 +267,10 @@ func (e *PolicyEdit) add(rules []NetworkPolicyRule) {
 
 func (e *PolicyEdit) changes() bool { return e.Removed > 0 || len(e.Added) > 0 }
 
+// ResultKey identifies the policy's ingress rules after the edit, as IngressKey
+// does before it.
+func (e *PolicyEdit) ResultKey() string { return rulesKey(e.Ingress) }
+
 // YQ is the set-yq expression making the edit to the Unit holding the policy:
 // the same whichever Unit holds it, so a variant and its upstream take the same
 // expression. A rule with no `from` peers admits every source.

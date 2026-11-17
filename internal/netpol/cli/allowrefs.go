@@ -63,8 +63,9 @@ Sources are selected by their namespace's name and their own pod selector, which
 are the same in every cluster a workload is deployed to. So when every variant
 of an upstream Unit -- each Unit cloned from it -- would take the same edit, and
 the upstream's policies are the same as theirs, the edit is made to the upstream
-instead, for the variants to take by an upgrade. --no-upstream edits the
-variants themselves. A Unit imported from elsewhere may need its write guarded,
+instead, for the variants to take by an upgrade; when the upstream has the edit
+already, nothing is written, and the report says the variants are to be
+upgraded. --no-upstream edits the variants themselves. A Unit imported from elsewhere may need its write guarded,
 as in --guard Override=External --clearance Override=External.
 
 The report lists the connections found, the policy changes, who gains and loses
@@ -181,6 +182,9 @@ type unitEdit struct {
 	variants []string
 	// note says why a variant is edited rather than its upstream.
 	note string
+	// done is whether the upstream has the edit already, and only its variants
+	// lack it, until they are upgraded.
+	done bool
 }
 
 func (u *unitEdit) key() string { return strings.Join(u.exprs, "\n") }
@@ -263,9 +267,10 @@ func moveToUpstreams(ctx context.Context, c *cubapi.Client, byUnit map[string]*u
 		}
 		upName := spaceSlugOf(up) + "/" + up.Unit.Slug
 		note := sameEditNote(byUnit, vs, upName)
+		done := false
 		if note == "" {
 			first := byUnit[vs[0].Unit.UnitID.String()]
-			if note, err = upstreamDiffers(ctx, c, up, first); err != nil {
+			if done, note, err = upstreamState(ctx, c, up, first); err != nil {
 				return err
 			}
 		}
@@ -280,7 +285,7 @@ func moveToUpstreams(ctx context.Context, c *cubapi.Client, byUnit map[string]*u
 		first := byUnit[vs[0].Unit.UnitID.String()]
 		moved := &unitEdit{
 			spaceID: up.Unit.SpaceID.String(), space: spaceSlugOf(up), unitID: upID, unit: up.Unit.Slug,
-			edits: first.edits, exprs: first.exprs,
+			edits: first.edits, exprs: first.exprs, done: done,
 		}
 		for _, v := range vs {
 			u := byUnit[v.Unit.UnitID.String()]
@@ -319,14 +324,16 @@ func sameEditNote(byUnit map[string]*unitEdit, variants []*goclientnew.ExtendedU
 	return ""
 }
 
-// upstreamDiffers says why the edit would not mean the same in the upstream as
-// in its variants -- a policy it lacks, or whose ingress rules differ -- empty
-// when it would.
-func upstreamDiffers(ctx context.Context, c *cubapi.Client, up *goclientnew.ExtendedUnit, variant *unitEdit) (string, error) {
+// upstreamState compares the upstream's policies with a variant's. The edit
+// means the same in the upstream when each of its policies has the variant's
+// ingress rules; done is whether each has the rules the edit leaves instead, so
+// that the variants take it by an upgrade with no edit. Otherwise note says why
+// -- a policy the upstream lacks, or whose rules are neither.
+func upstreamState(ctx context.Context, c *cubapi.Client, up *goclientnew.ExtendedUnit, variant *unitEdit) (done bool, note string, err error) {
 	ref := cub.UnitRef{SpaceID: up.Unit.SpaceID, SpaceSlug: spaceSlugOf(up), UnitID: up.Unit.UnitID, UnitSlug: up.Unit.Slug}
 	data, _, err := cub.GetUnitData(ctx, c, ref)
 	if err != nil {
-		return "", err
+		return false, "", err
 	}
 	var resources []netpol.FleetResource
 	for _, doc := range cub.SplitDocuments(data) {
@@ -341,17 +348,31 @@ func upstreamDiffers(ctx context.Context, c *cubapi.Client, up *goclientnew.Exte
 			policies[p.Name] = p
 		}
 	}
-	name := ref.SpaceSlug + "/" + ref.UnitSlug
-	for _, e := range variant.edits {
+	done, note = compareUpstream(ref.SpaceSlug+"/"+ref.UnitSlug, policies, variant.edits)
+	return done, note, nil
+}
+
+// compareUpstream is upstreamState's comparison of the upstream's policies,
+// by name, with a variant's edits.
+func compareUpstream(name string, policies map[string]*netpol.NetworkPolicyEntity, edits []*netpol.PolicyEdit) (done bool, note string) {
+	same, edited := 0, 0
+	for _, e := range edits {
 		p := policies[e.Policy.Name]
 		switch {
 		case p == nil:
-			return fmt.Sprintf("the upstream, %s, has no policy %s", name, e.Policy.Name), nil
-		case netpol.IngressKey(p) != netpol.IngressKey(e.Policy):
-			return fmt.Sprintf("the upstream, %s, has policy %s with other ingress rules than its variants", name, e.Policy.Name), nil
+			return false, fmt.Sprintf("the upstream, %s, has no policy %s", name, e.Policy.Name)
+		case netpol.IngressKey(p) == netpol.IngressKey(e.Policy):
+			same++
+		case netpol.IngressKey(p) == e.ResultKey():
+			edited++
+		default:
+			return false, fmt.Sprintf("the upstream, %s, has policy %s with other ingress rules than its variants", name, e.Policy.Name)
 		}
 	}
-	return "", nil
+	if same > 0 && edited > 0 {
+		return false, fmt.Sprintf("the upstream, %s, has some of the edits and not others", name)
+	}
+	return edited > 0, ""
 }
 
 // listUnitsIn lists the Units whose field is one of values, a hundred values to
@@ -412,13 +433,18 @@ func planCreates(snap *snapshot.Snapshot, plans []netpol.IngressPlan) ([]refCrea
 func writeRefPlans(ctx context.Context, c *cubapi.Client, edits []*unitEdit, creates []refCreate, ch cubapi.Change) ([]*cubapi.Result, error) {
 	ids := make([]string, 0, len(edits))
 	for _, u := range edits {
-		ids = append(ids, u.unitID)
+		if !u.done {
+			ids = append(ids, u.unitID)
+		}
 	}
 	if err := cub.OpenChangeSetFirst(ctx, c, ch, ids); err != nil {
 		return nil, err
 	}
 	var results []*cubapi.Result
 	for _, u := range edits {
+		if u.done {
+			continue
+		}
 		spaceID, err := uuid.Parse(u.spaceID)
 		if err != nil {
 			return nil, fmt.Errorf("space ID %q: %w", u.spaceID, err)
@@ -483,6 +509,9 @@ type refWrite struct {
 	Policies []string `json:"policies"`
 	Variants []string `json:"variants,omitempty"`
 	Note     string   `json:"note,omitempty"`
+	// Done is whether the Unit, an upstream, has the edit already, and is not
+	// written: its variants take it by an upgrade.
+	Done bool `json:"done,omitempty"`
 }
 
 type refAccess struct {
@@ -526,7 +555,7 @@ func newRefsReport(plans []netpol.IngressPlan, edits []*unitEdit, creates []refC
 		})
 	}
 	for _, u := range edits {
-		w := refWrite{Unit: u.space + "/" + u.unit, Clusters: u.clusters, Variants: u.variants, Note: u.note}
+		w := refWrite{Unit: u.space + "/" + u.unit, Clusters: u.clusters, Variants: u.variants, Note: u.note, Done: u.done}
 		for _, e := range u.edits {
 			w.Policies = append(w.Policies, e.Policy.Name)
 		}
@@ -580,11 +609,14 @@ func printRefsReport(out io.Writer, rep refsReport) {
 	}
 
 	if len(rep.Writes) > 0 {
-		section("Units the edits are written to:")
+		section("Units the edits are made in:")
 		fmt.Fprintln(tw, "UNIT\tPOLICIES\tFOR")
 		for _, w := range rep.Writes {
 			forWhat := strings.Join(w.Clusters, ", ")
-			if len(w.Variants) > 0 {
+			switch {
+			case w.Done:
+				forWhat = "has the edit already: upgrade variants " + strings.Join(w.Variants, ", ")
+			case len(w.Variants) > 0:
 				forWhat = "variants " + strings.Join(w.Variants, ", ") + ", by an upgrade"
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\n", w.Unit, strings.Join(w.Policies, ", "), forWhat)

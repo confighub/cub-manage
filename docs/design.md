@@ -382,7 +382,8 @@ to each destination, and which connections the source's own egress policies stil
 A source is selected by its namespace's name and its own pod selector, which are the same in every
 cluster the workload is deployed to, so the variants of one upstream Unit usually take the same
 edit. When all of them do, and the upstream's policies are the same as theirs, the edit is made to
-the upstream, for the variants to take by an upgrade. A created policy is a new Unit in each
+the upstream, for the variants to take by an upgrade; when the upstream has the edit already,
+nothing is written, and the report says to upgrade the variants. A created policy is a new Unit in each
 variant's Space. Other references a policy could be derived from -- admission webhooks and
 APIServices, which the API server calls, and Service addresses in a workload's environment and
 arguments -- and the egress allows a controller with egress policies needs, are not read yet.
