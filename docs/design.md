@@ -372,12 +372,25 @@ Because a Link joins Units and a Unit can hold several resources, `allow-from-li
 Link's Unit slug to a resource name, prefers the Service, and skips Units it cannot disambiguate.
 
 `allow-from-refs` derives the allows from the references between resources instead, so no Links
-have to be recorded first. The references it reads are routes: an Ingress, or a Traefik
-IngressRoute, IngressRouteTCP or IngressRouteUDP, names Services, and the ingress controller
-serving it connects to the pods each Service selects. The controller is Traefik for its own
-routes, and for an Ingress the controller of its IngressClass; its workload is the one running that
-controller's image, or the one `--ingress-controller` names. The port is the pod's: the route's
-Service port, through its `targetPort`, to the container port of that number or name.
+have to be recorded first. It reads two kinds of reference (`--refs`):
+
+- Routes. An Ingress, or a Traefik IngressRoute, IngressRouteTCP or IngressRouteUDP, names
+  Services, and the ingress controller serving it connects to the pods each Service selects. The
+  controller is Traefik for its own routes, and for an Ingress the controller of its IngressClass;
+  its workload is the one running that controller's image, or the one `--ingress-controller` names.
+- Config. A Service address in a workload's config is a connection from the workload to the
+  Service's pods: in its containers' commands, arguments and env values, and in the ConfigMaps it
+  reads, by a volume or env, or finds by label through the Kubernetes API with a kiwigrid
+  k8s-sidecar, as Grafana's chart finds datasources. ConfigMap values are read as text, so an
+  address in a YAML document embedded in one counts. An address is `<service>.<namespace>.svc`
+  (and `.cluster.local`), or a shorter name with a scheme or a port, and counts only when ConfigHub
+  has the Service, so that a bare word is not taken for one. ConfigMaps are loaded for this command
+  alone: Grafana dashboards make them large.
+
+The port is the pod's: the Service port the route or address names (an address's scheme implies
+80 or 443; one with neither names every port), through its `targetPort`, to the container port of
+that number or name. A ConfigMap several workloads read is a connection from each of them to every
+Service it names, which is more than some of them make.
 
 Policies add up, so an allow beside a rule admitting every source changes nothing. For each
 destination, `allow-from-refs` takes the rules admitting every source out of the policies isolating
@@ -397,8 +410,9 @@ ChangeOrder, as above, annotated with `netpol-no-allow-all-ingress` for an edit 
 `netpol-ingress-coverage` for a new policy; promoting the ChangeOrder clones the new policy Units
 into the variants. When the upstream has the change already, nothing is written, and the report
 says to promote it. Otherwise each variant is changed itself. Other references a policy could be derived from -- admission webhooks and
-APIServices, which the API server calls, and Service addresses in a workload's environment and
-arguments -- and the egress allows a controller with egress policies needs, are not read yet.
+APIServices, which the API server calls; addresses in Secrets; and scrape targets a metrics
+server finds through the Kubernetes API -- and the egress allows a source with egress policies
+needs, are not read yet.
 
 ### 6.4 workload
 

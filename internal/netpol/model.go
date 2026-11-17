@@ -252,8 +252,37 @@ type WorkloadEntity struct {
 	Images []string `json:"images,omitempty"`
 	// Ports are the ports the pod's containers declare, which a Service's named
 	// targetPort resolves to.
-	Ports  []ContainerPort `json:"ports,omitempty"`
-	Origin ResourceOrigin  `json:"origin"`
+	Ports []ContainerPort `json:"ports,omitempty"`
+	// ConfigText is the text of the pod's containers' commands, arguments and
+	// env values, in which a workload names the Services it connects to.
+	ConfigText []string `json:"-"`
+	// ConfigMaps are the ConfigMaps in its namespace the pod reads, by a
+	// volume or by env.
+	ConfigMaps []string `json:"-"`
+	// Discovers are the ConfigMaps a container finds by label through the
+	// Kubernetes API, as a k8s-sidecar does, rather than mounting them.
+	Discovers []ConfigMapDiscovery `json:"-"`
+	Origin    ResourceOrigin       `json:"origin"`
+}
+
+// ConfigMapDiscovery is a container finding ConfigMaps by a label, such as a
+// kiwigrid k8s-sidecar writing them to a volume for the container beside it.
+type ConfigMapDiscovery struct {
+	Container string
+	Label     string
+	// Value is the label value a ConfigMap has to have, any when empty.
+	Value string
+	// Namespaces it looks in: its own when empty, every one when "ALL".
+	Namespaces []string
+}
+
+// ConfigMapEntity is a v1 ConfigMap, read for the Service addresses in it.
+type ConfigMapEntity struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Data      map[string]string `json:"-"`
+	Origin    ResourceOrigin    `json:"origin"`
 }
 
 // ContainerPort is a port a container declares.
@@ -389,6 +418,9 @@ type ClusterNetpol struct {
 	Services        []*ServiceEntity       `json:"services"`
 	Routes          []*RouteEntity         `json:"routes,omitempty"`
 	IngressClasses  []*IngressClassEntity  `json:"ingressClasses,omitempty"`
+	// ConfigMaps are loaded only by the commands that read Service addresses
+	// in them.
+	ConfigMaps []*ConfigMapEntity `json:"-"`
 }
 
 // workloadKinds is the set of pod-bearing kinds whose pod-template labels a
@@ -477,6 +509,11 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 				Default: asStringMap(metadata["annotations"])[defaultIngressClassAnnotation] == "true",
 				Origin:  fr.Origin,
 			})
+		case kind == "ConfigMap" && apiVersion == "v1":
+			cluster.ConfigMaps = append(cluster.ConfigMaps, &ConfigMapEntity{
+				Name: name, Namespace: namespace, Labels: labels,
+				Data: asStringMap(rec["data"]), Origin: fr.Origin,
+			})
 		case workloadKinds[kind]:
 			podSpec := podTemplateSpec(kind, rec)
 			cluster.Workloads = append(cluster.Workloads, &WorkloadEntity{
@@ -485,6 +522,9 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 				SelectorLabels: workloadSelectorLabels(kind, rec),
 				Images:         containerImages(podSpec),
 				Ports:          containerPorts(podSpec),
+				ConfigText:     containerConfigText(podSpec),
+				ConfigMaps:     podConfigMaps(podSpec),
+				Discovers:      sidecarDiscoveries(podSpec),
 				Origin:         fr.Origin,
 			})
 		}
@@ -547,6 +587,102 @@ func containerPorts(podSpec map[string]any) []ContainerPort {
 		}
 	}
 	return out
+}
+
+// allContainers are a pod spec's containers and init containers, which
+// connect to Services alike.
+func allContainers(podSpec map[string]any) []map[string]any {
+	return append(asRecords(podSpec["initContainers"]), asRecords(podSpec["containers"])...)
+}
+
+// containerConfigText is the text of the containers' commands, arguments and
+// env values.
+func containerConfigText(podSpec map[string]any) []string {
+	var out []string
+	for _, c := range allContainers(podSpec) {
+		out = append(out, asStringArray(c["command"])...)
+		out = append(out, asStringArray(c["args"])...)
+		for _, e := range asRecords(c["env"]) {
+			if v, ok := asString(e["value"]); ok && v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// podConfigMaps are the ConfigMaps a pod reads: those its volumes mount,
+// directly or projected, and those its containers' env reads.
+func podConfigMaps(podSpec map[string]any) []string {
+	var out []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	for _, v := range asRecords(podSpec["volumes"]) {
+		add(firstString(nestedRecord(v, "configMap")["name"]))
+		for _, src := range asRecords(nestedRecord(v, "projected")["sources"]) {
+			add(firstString(nestedRecord(src, "configMap")["name"]))
+		}
+	}
+	for _, c := range allContainers(podSpec) {
+		for _, e := range asRecords(c["envFrom"]) {
+			add(firstString(nestedRecord(e, "configMapRef")["name"]))
+		}
+		for _, e := range asRecords(c["env"]) {
+			add(firstString(nestedRecord(e, "valueFrom", "configMapKeyRef")["name"]))
+		}
+	}
+	return out
+}
+
+// k8sSidecarImage is the repository of kiwigrid's k8s-sidecar, which finds
+// ConfigMaps by label through the Kubernetes API and writes them to a volume,
+// as Grafana's chart uses it for datasources and dashboards.
+const k8sSidecarImage = "k8s-sidecar"
+
+// sidecarDiscoveries are the ConfigMaps a pod's k8s-sidecar containers find,
+// from their LABEL, LABEL_VALUE, NAMESPACE and RESOURCE settings. A sidecar
+// finding only Secrets finds no ConfigMap.
+func sidecarDiscoveries(podSpec map[string]any) []ConfigMapDiscovery {
+	var out []ConfigMapDiscovery
+	for _, c := range allContainers(podSpec) {
+		repo := imageRepository(firstString(c["image"]))
+		if repo != k8sSidecarImage && !strings.HasSuffix(repo, "/"+k8sSidecarImage) {
+			continue
+		}
+		env := map[string]string{}
+		for _, e := range asRecords(c["env"]) {
+			if v, ok := asString(e["value"]); ok {
+				env[firstString(e["name"])] = v
+			}
+		}
+		if env["LABEL"] == "" || strings.EqualFold(env["RESOURCE"], "secret") {
+			continue
+		}
+		d := ConfigMapDiscovery{Container: firstString(c["name"]), Label: env["LABEL"], Value: env["LABEL_VALUE"]}
+		for _, ns := range strings.Split(env["NAMESPACE"], ",") {
+			if ns = strings.TrimSpace(ns); ns != "" {
+				d.Namespaces = append(d.Namespaces, ns)
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// finds reports whether the discovery finds a ConfigMap, for a pod in
+// namespace.
+func (d ConfigMapDiscovery) finds(cm *ConfigMapEntity, namespace string) bool {
+	v, ok := cm.Labels[d.Label]
+	if !ok || (d.Value != "" && v != d.Value) {
+		return false
+	}
+	if len(d.Namespaces) == 0 {
+		return NamespaceOf(cm.Namespace) == namespace
+	}
+	return slices.Contains(d.Namespaces, "ALL") || slices.Contains(d.Namespaces, NamespaceOf(cm.Namespace))
 }
 
 // parseServicePorts parses a Service's spec.ports.

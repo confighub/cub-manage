@@ -84,10 +84,26 @@ var loader = cubapi.SnapshotLoader[netpol.FleetResource]{
 	},
 }
 
+// configMapType is loaded only for the commands that read the Service
+// addresses in ConfigMaps: there are many, and some, such as Grafana
+// dashboards, are large.
+const configMapType = "v1/ConfigMap"
+
 // Load fetches and assembles the fleet snapshot, scoped by a single ConfigHub
 // Unit `where` predicate (empty = everything the user can view). Each cluster's
 // Target says whether it enforces NetworkPolicy.
 func Load(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, error) {
+	return load(ctx, c, where, loader)
+}
+
+// LoadWithConfigMaps is Load, with every cluster's ConfigMaps too.
+func LoadWithConfigMaps(ctx context.Context, c *cubapi.Client, where string) (*Snapshot, error) {
+	withConfigMaps := loader
+	withConfigMaps.ResourceTypes = append(append([]string{}, loader.ResourceTypes...), configMapType)
+	return load(ctx, c, where, withConfigMaps)
+}
+
+func load(ctx context.Context, c *cubapi.Client, where string, loader cubapi.SnapshotLoader[netpol.FleetResource]) (*Snapshot, error) {
 	snap, err := loader.Load(ctx, c, where)
 	if err != nil {
 		return nil, err

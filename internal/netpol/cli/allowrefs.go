@@ -23,6 +23,7 @@ import (
 
 func newAllowFromRefsCmd() *cobra.Command {
 	var output, clusterFilter, namespaceFilter, controller, rolloutSlug, policySpace string
+	var refKinds []string
 	var noUpstream bool
 	var filter kit.FilterFlags
 	var commit write.CommitFlags
@@ -33,13 +34,27 @@ func newAllowFromRefsCmd() *cobra.Command {
 connects to another, and changes NetworkPolicies so that each destination admits
 those connections and no others: no Links have to be recorded first.
 
-The references it reads are routes. An Ingress, or a Traefik IngressRoute,
-IngressRouteTCP or IngressRouteUDP, names Services, and the ingress controller
-serving it connects to the pods each Service selects, on the pod port the
-Service port's targetPort names. The controller is Traefik for its own routes,
-and for an Ingress the controller of its IngressClass (Traefik or ingress-nginx);
-its workload is the one running that controller's image. Name it with
---ingress-controller <namespace>/<workload> when the images do not tell.
+It reads two kinds of reference, chosen with --refs (both by default):
+
+  routes   An Ingress, or a Traefik IngressRoute, IngressRouteTCP or
+           IngressRouteUDP, names Services, and the ingress controller serving
+           it connects to the pods each Service selects, on the pod port the
+           Service port's targetPort names. The controller is Traefik for its
+           own routes, and for an Ingress the controller of its IngressClass
+           (Traefik or ingress-nginx); its workload is the one running that
+           controller's image. Name it with --ingress-controller
+           <namespace>/<workload> when the images do not tell.
+  config   A Service address in a workload's config is a connection from the
+           workload to the Service's pods: in its containers' commands,
+           arguments and env values, and in the ConfigMaps it reads -- by a
+           volume, by env, or found by label by a kiwigrid k8s-sidecar, as
+           Grafana's datasources are. A ConfigMap value is read as text, so an
+           address in YAML or JSON inside it counts. An address is
+           <service>.<namespace>.svc[.cluster.local], or <service> or
+           <service>.<namespace> with a scheme or a port, as in
+           http://loki:3100; the Service has to be in ConfigHub, and the port
+           is the one the address names or its scheme implies (http 80, https
+           443), or every port.
 
 Policies add up, so a rule admitting a few sources does nothing beside a rule
 admitting every source. For each destination, allow-from-refs:
@@ -100,12 +115,20 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 			if err != nil {
 				return err
 			}
-			snap, err := snapshot.Load(cmd.Context(), client, where)
+			kinds, err := parseRefKinds(refKinds)
+			if err != nil {
+				return err
+			}
+			load := snapshot.Load
+			if kinds[refsConfig] {
+				load = snapshot.LoadWithConfigMaps
+			}
+			snap, err := load(cmd.Context(), client, where)
 			if err != nil {
 				return err
 			}
 			ctx := cmd.Context()
-			plans := planRefs(snap, clusterFilter, namespaceFilter, controller)
+			plans := planRefs(snap, kinds, clusterFilter, namespaceFilter, controller)
 			l, err := loadLineage(ctx, client, plannedUnitIDs(plans))
 			if err != nil {
 				return err
@@ -142,6 +165,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 	kit.AddFilterFlags(cmd, &filter)
 	kit.AddClusterFlag(cmd, &clusterFilter)
 	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "only destinations in this namespace")
+	cmd.Flags().StringSliceVar(&refKinds, "refs", []string{refsRoutes, refsConfig}, "the references to read: routes, config, or both")
 	cmd.Flags().StringVar(&controller, "ingress-controller", "", "the workload serving every route, as <namespace>/<workload>, when its image does not say")
 	cmd.Flags().BoolVar(&noUpstream, "no-upstream", false, "change each variant's policies, even when every variant would take the same change from its upstream Unit")
 	cmd.Flags().StringVar(&rolloutSlug, "rollout", "netpol-allow-from-refs", "name of the ChangeSet and ChangeOrder each base's changes are made in")
@@ -150,8 +174,28 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 	return cmd
 }
 
-// planRefs plans each cluster's policy changes from its routes.
-func planRefs(snap *snapshot.Snapshot, clusterFilter, namespaceFilter, controller string) []netpol.IngressPlan {
+// The kinds of reference allow-from-refs reads.
+const (
+	refsRoutes = "routes"
+	refsConfig = "config"
+)
+
+func parseRefKinds(kinds []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, k := range kinds {
+		if k != refsRoutes && k != refsConfig {
+			return nil, fmt.Errorf("--refs takes %s and %s, not %q", refsRoutes, refsConfig, k)
+		}
+		out[k] = true
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("--refs names no references to read")
+	}
+	return out, nil
+}
+
+// planRefs plans each cluster's policy changes from the references it reads.
+func planRefs(snap *snapshot.Snapshot, kinds map[string]bool, clusterFilter, namespaceFilter, controller string) []netpol.IngressPlan {
 	names := make([]string, 0, len(snap.Clusters))
 	for name := range snap.Clusters {
 		if clusterFilter == "" || name == clusterFilter {
@@ -162,7 +206,16 @@ func planRefs(snap *snapshot.Snapshot, clusterFilter, namespaceFilter, controlle
 	var plans []netpol.IngressPlan
 	for _, name := range names {
 		c := snap.Clusters[name]
-		flows, skipped := netpol.RouteFlows(c, controller)
+		var flows []netpol.Flow
+		var skipped []netpol.RefSkip
+		if kinds[refsRoutes] {
+			f, s := netpol.RouteFlows(c, controller)
+			flows, skipped = append(flows, f...), append(skipped, s...)
+		}
+		if kinds[refsConfig] {
+			f, s := netpol.ConfigFlows(c)
+			flows, skipped = append(flows, f...), append(skipped, s...)
+		}
 		if namespaceFilter != "" {
 			var kept []netpol.Flow
 			for _, f := range flows {
