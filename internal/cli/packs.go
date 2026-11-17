@@ -56,6 +56,18 @@ var (
 	serviceOfType = func(t string) string { return "has(r.spec) && has(r.spec.type) && r.spec.type == '" + t + "'" }
 )
 
+// traefikRouteTypes are Traefik's HTTP routes, under its API group's current name and the one before.
+var traefikRouteTypes = []string{"traefik.io/v1alpha1/IngressRoute", "traefik.containo.us/v1alpha1/IngressRoute"}
+
+// concat is the lists' elements, in a new list.
+func concat(lists ...[]string) []string {
+	var out []string
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
+}
+
 // listFailures fails each element of the list at path under r for which bad holds of x, at the
 // element's field.
 func listFailures(path, bad, field, value, detail string) string {
@@ -104,16 +116,20 @@ var exposurePack = guardrails.Pack{
 			failIf(serviceOfType("NodePort"), celrule.Lit("spec.type"), celrule.Some("r.spec.type"), "'the Service opens a port on every node'"),
 			serviceTypes, "SC:service-type", "GK:block-nodeport-services", "KY:restrict-node-port", "KL:exposed-services"),
 		celCheck("CH-0605", "ingress-tls", guardrails.PriorityMedium, "Ingresses and HTTPS listeners have TLS",
-			"Warns on an Ingress with no tls section, and on a Gateway HTTPS listener with no tls, so traffic is served in the clear or not at all. Fix: add the certificate.",
-			"(r.kind == 'Ingress' ? "+failIf("!(has(r.spec) && has(r.spec.tls) && size(r.spec.tls) > 0)", celrule.Lit("spec.tls"), celrule.None, "'the Ingress serves no TLS'")+" : "+
+			"Warns on an Ingress with no tls section, on a Gateway HTTPS listener with no tls, and on a route of a Traefik IngressRoute with no tls that uses no middleware, so traffic is served in the clear or not at all. A route redirects to HTTPS with a middleware, so one with any middleware passes. Fix: add the certificate, or redirect to HTTPS.",
+			"(r.kind == 'Ingress' ? "+failIf("!(has(r.spec) && has(r.spec.tls) && size(r.spec.tls) > 0)", celrule.Lit("spec.tls"), celrule.None, "'the Ingress serves no TLS'")+
+				" : r.kind == 'IngressRoute' ? "+listFailures("spec.routes", "!has(r.spec.tls) && !(has(x.middlewares) && size(x.middlewares) > 0)", "middlewares", celrule.None,
+				"'route ' + string(i) + ' serves in the clear: the IngressRoute has no tls, and the route no middleware, such as one redirecting to HTTPS'")+" : "+
 				listFailures("spec.listeners", "has(x.protocol) && x.protocol == 'HTTPS' && !has(x.tls)", "tls", celrule.None, "'HTTPS listener ' + string(i) + ' has no tls'")+")",
-			append(append([]string{}, ingressTypes...), gatewayTypes...), "KS:C-0263", "GK:httpsonly", "KY:require-ingress-https"),
+			concat(ingressTypes, gatewayTypes, traefikRouteTypes), "KS:C-0263", "GK:httpsonly", "KY:require-ingress-https"),
 		celCheck("CH-0606", "ingress-host", guardrails.PriorityMedium, "Ingresses and HTTPRoutes name their hosts",
-			"Warns on an Ingress rule with no host or the bare wildcard *, and an HTTPRoute with no hostnames or *, which take traffic for every host the controller serves. Fix: name the host.",
-			"(r.kind == 'Ingress' ? "+listFailures("spec.rules", "!has(x.host) || x.host == '*'", "host", "r.spec.rules[i].?host", "'rule ' + string(i) + ' takes traffic for every host'")+" : "+
+			"Warns on an Ingress rule with no host or the bare wildcard *, an HTTPRoute with no hostnames or *, and a route of a Traefik IngressRoute whose match has no Host or HostRegexp, which take traffic for every host the controller serves. Fix: name the host.",
+			"(r.kind == 'Ingress' ? "+listFailures("spec.rules", "!has(x.host) || x.host == '*'", "host", "r.spec.rules[i].?host", "'rule ' + string(i) + ' takes traffic for every host'")+
+				" : r.kind == 'IngressRoute' ? "+listFailures("spec.routes", "!has(x.match) || !x.match.matches('Host(Regexp)?\\\\(')", "match", "r.spec.routes[i].?match",
+				"'route ' + string(i) + ' takes traffic for every host: its match names none'")+" : "+
 				failIf("!(has(r.spec) && has(r.spec.hostnames) && size(r.spec.hostnames) > 0 && !r.spec.hostnames.exists(h, h == '*'))", celrule.Lit("spec.hostnames"), "r.?spec.?hostnames",
 					"'the HTTPRoute takes traffic for every host'")+")",
-			append(append([]string{}, ingressTypes...), routeTypes...), "GK:block-wildcard-ingress", "KY:disallow-empty-ingress-host", "KY:restrict-ingress-wildcard"),
+			concat(ingressTypes, routeTypes, traefikRouteTypes), "GK:block-wildcard-ingress", "KY:disallow-empty-ingress-host", "KY:restrict-ingress-wildcard"),
 		celCheck("CH-0608", "gateway-allowed-routes", guardrails.PriorityMedium, "Gateway listeners admit routes from chosen namespaces",
 			"Warns on a Gateway listener whose allowedRoutes admit routes from All namespaces, so any namespace can take its traffic. Fix: allow Same, or a selector of the namespaces that serve it.",
 			listFailures("spec.listeners", "has(x.allowedRoutes) && has(x.allowedRoutes.namespaces) && has(x.allowedRoutes.namespaces.from) && x.allowedRoutes.namespaces.from == 'All'",
@@ -234,7 +250,7 @@ var toolPacks = []struct {
 	pack  guardrails.Pack
 	short string
 }{
-	{exposurePack, "Services, Ingresses and Gateways: no externalIPs, NodePorts or nginx snippets; TLS; named hosts"},
+	{exposurePack, "Services, Ingresses, Gateways and Traefik IngressRoutes: no externalIPs, NodePorts or nginx snippets; TLS; named hosts"},
 	{secretsPack, "No Secrets in configuration, and no credentials in env or ConfigMaps"},
 	{metadataPack, "Not in the default namespace; required labels and annotations"},
 	{storagePack, "No hostPath or FlexVolume PersistentVolumes; claims name a storage class"},

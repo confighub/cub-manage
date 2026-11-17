@@ -45,6 +45,8 @@ const (
 	openIngress  = "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  annotations:\n    nginx.ingress.kubernetes.io/server-snippet: 'location /x {}'\n    nginx.ingress.kubernetes.io/ssl-redirect: 'true'\nspec:\n  rules:\n    - http: {}\n    - host: '*'\n    - host: shop.example.com\n"
 	gateway      = "apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: edge\nspec:\n  listeners:\n    - name: http\n      protocol: HTTP\n      allowedRoutes:\n        namespaces:\n          from: All\n    - name: https\n      protocol: HTTPS\n"
 	route        = "apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: web\nspec:\n  hostnames: ['*']\n"
+	openRoute    = "apiVersion: traefik.io/v1alpha1\nkind: IngressRoute\nmetadata:\n  name: web\nspec:\n  entryPoints: [web]\n  routes:\n    - match: Host(`shop.example.com`)\n      middlewares: [{name: redirect-to-https}]\n    - match: PathPrefix(`/`)\n"
+	tidyRoute    = "apiVersion: traefik.io/v1alpha1\nkind: IngressRoute\nmetadata:\n  name: web\nspec:\n  entryPoints: [websecure]\n  routes:\n    - match: Host(`shop.example.com`) && PathPrefix(`/api`)\n    - match: HostRegexp(`^.+\\.example\\.com$`)\n  tls:\n    secretName: shop-tls\n"
 	tidyIngress  = "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\nspec:\n  ingressClassName: nginx\n  tls:\n    - hosts: [shop.example.com]\n  rules:\n    - host: shop.example.com\n"
 	envSecret    = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  template:\n    spec:\n      containers:\n        - name: web\n          env:\n            - name: DB_PASSWORD\n              valueFrom:\n                secretKeyRef: {name: db, key: password}\n          envFrom:\n            - configMapRef: {name: settings}\n            - secretRef: {name: api}\n"
 	labeled      = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n  namespace: default\n  labels:\n    owner: web\n    tier: frontend\n  annotations:\n    example.com/team: web\n    exceptions.guardrails.confighub.com/no-credentials-in-configmaps: test data\n"
@@ -63,6 +65,9 @@ func TestExposureChecks(t *testing.T) {
 		{"ingress-tls", gateway, nil, []string{"spec.listeners.1.tls"}},
 		{"ingress-host", openIngress, nil, []string{"spec.rules.0.host", "spec.rules.1.host"}},
 		{"ingress-host", route, nil, []string{"spec.hostnames"}},
+		// The redirecting route passes; the one with no middleware and no host fails both.
+		{"ingress-tls", openRoute, nil, []string{"spec.routes.1.middlewares"}},
+		{"ingress-host", openRoute, nil, []string{"spec.routes.1.match"}},
 		{"gateway-allowed-routes", gateway, nil, []string{"spec.listeners.0.allowedRoutes.namespaces.from"}},
 		{"no-loadbalancer", "apiVersion: v1\nkind: Service\nmetadata:\n  name: lb\nspec:\n  type: LoadBalancer\n", nil, []string{"spec.type"}},
 		{"ingress-class", openIngress, map[string]string{"allowed": "nginx"}, []string{"spec.ingressClassName"}},
@@ -70,6 +75,8 @@ func TestExposureChecks(t *testing.T) {
 	expectPasses(t, exposurePack, []failing{
 		{"ingress-tls", tidyIngress, nil, nil},
 		{"ingress-host", tidyIngress, nil, nil},
+		{"ingress-tls", tidyRoute, nil, nil},
+		{"ingress-host", tidyRoute, nil, nil},
 		{"ingress-class", tidyIngress, map[string]string{"allowed": "nginx, traefik"}, nil},
 		{"no-nginx-snippets", tidyIngress, nil, nil},
 		{"no-nodeport", loopback, nil, nil},
