@@ -7,7 +7,7 @@
 // Reading the fleet is cubapi.SnapshotLoader's job. What is netpol-specific is which
 // resource types the coverage model needs and what a resource becomes once it
 // arrives: coverage is a join across types -- a NetworkPolicy means nothing
-// without the pods its podSelector matches -- so all four families are pulled.
+// without the pods its podSelector matches -- so every family is pulled.
 package snapshot
 
 import (
@@ -42,7 +42,9 @@ type Snapshot struct {
 
 // loader names the resource types the coverage model needs: the policies
 // themselves, the namespaces they live in, everything that carries a pod
-// template for their selectors to match, and the Services that name it.
+// template for their selectors to match, and the Services that name it. The
+// routes and IngressClasses say which workloads an ingress controller sends
+// traffic to.
 var loader = cubapi.SnapshotLoader[netpol.FleetResource]{
 	ResourceTypes: []string{
 		"networking.k8s.io/v1/NetworkPolicy",
@@ -56,6 +58,14 @@ var loader = cubapi.SnapshotLoader[netpol.FleetResource]{
 		"batch/v1beta1/CronJob",
 		"v1/Pod",
 		"v1/Service",
+		"networking.k8s.io/v1/Ingress",
+		"networking.k8s.io/v1/IngressClass",
+		"traefik.io/v1alpha1/IngressRoute",
+		"traefik.io/v1alpha1/IngressRouteTCP",
+		"traefik.io/v1alpha1/IngressRouteUDP",
+		"traefik.containo.us/v1alpha1/IngressRoute",
+		"traefik.containo.us/v1alpha1/IngressRouteTCP",
+		"traefik.containo.us/v1alpha1/IngressRouteUDP",
 	},
 	New: func(o cubapi.Origin, doc map[string]any) netpol.FleetResource {
 		return netpol.FleetResource{

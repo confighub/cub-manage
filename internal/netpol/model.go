@@ -247,7 +247,20 @@ type WorkloadEntity struct {
 	Namespace      string            `json:"namespace"`
 	PodLabels      map[string]string `json:"podLabels,omitempty"`
 	SelectorLabels map[string]string `json:"selectorLabels,omitempty"`
-	Origin         ResourceOrigin    `json:"origin"`
+	// Images are the images of the pod's containers, which tell what a workload
+	// runs: an ingress controller, say.
+	Images []string `json:"images,omitempty"`
+	// Ports are the ports the pod's containers declare, which a Service's named
+	// targetPort resolves to.
+	Ports  []ContainerPort `json:"ports,omitempty"`
+	Origin ResourceOrigin  `json:"origin"`
+}
+
+// ContainerPort is a port a container declares.
+type ContainerPort struct {
+	Name     string `json:"name,omitempty"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
 }
 
 // PolicySelector returns the labels a generated NetworkPolicy should use to
@@ -279,7 +292,52 @@ type ServiceEntity struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
 	Selector  map[string]string `json:"selector,omitempty"`
+	Ports     []ServicePort     `json:"ports,omitempty"`
 	Origin    ResourceOrigin    `json:"origin"`
+}
+
+// ServicePort is one of a Service's ports. TargetPort is the pod port traffic to
+// it goes to, a number or a container port's name; empty, it is Port.
+type ServicePort struct {
+	Name       string `json:"name,omitempty"`
+	Port       int    `json:"port"`
+	TargetPort string `json:"targetPort,omitempty"`
+	Protocol   string `json:"protocol"`
+}
+
+// RouteEntity is a resource that tells an ingress controller to send traffic to
+// Services: an Ingress, or a Traefik IngressRoute, IngressRouteTCP or
+// IngressRouteUDP. The controller's pods are what connect to the Services' pods,
+// so a route says which workloads the controller has to reach.
+type RouteEntity struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	// Class is an Ingress's class: its ingressClassName, or the
+	// kubernetes.io/ingress.class annotation. Empty, the cluster's default
+	// IngressClass serves it.
+	Class    string         `json:"class,omitempty"`
+	Backends []RouteBackend `json:"backends,omitempty"`
+	Origin   ResourceOrigin `json:"origin"`
+}
+
+// RouteBackend is a Service a route sends traffic to. Port is the Service port,
+// as a number or a name, and empty when the route names none. Protocol is the
+// protocol the route carries: UDP for an IngressRouteUDP, TCP otherwise.
+type RouteBackend struct {
+	Service   string `json:"service"`
+	Namespace string `json:"namespace"`
+	Port      string `json:"port,omitempty"`
+	Protocol  string `json:"protocol"`
+}
+
+// IngressClassEntity is a networking.k8s.io/v1 IngressClass: which controller
+// serves the Ingresses of the class, and whether it serves those naming none.
+type IngressClassEntity struct {
+	Name       string         `json:"name"`
+	Controller string         `json:"controller"`
+	Default    bool           `json:"default,omitempty"`
+	Origin     ResourceOrigin `json:"origin"`
 }
 
 // EnforcerFact is the Target fact naming what enforces NetworkPolicy on the
@@ -329,6 +387,8 @@ type ClusterNetpol struct {
 	Workloads       []*WorkloadEntity      `json:"workloads"`
 	Namespaces      []*NamespaceEntity     `json:"namespaces"`
 	Services        []*ServiceEntity       `json:"services"`
+	Routes          []*RouteEntity         `json:"routes,omitempty"`
+	IngressClasses  []*IngressClassEntity  `json:"ingressClasses,omitempty"`
 }
 
 // workloadKinds is the set of pod-bearing kinds whose pod-template labels a
@@ -392,13 +452,39 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 		case kind == "Service" && apiVersion == "v1":
 			cluster.Services = append(cluster.Services, &ServiceEntity{
 				Name: name, Namespace: namespace,
-				Selector: asStringMap(spec["selector"]), Origin: fr.Origin,
+				Selector: asStringMap(spec["selector"]),
+				Ports:    parseServicePorts(spec["ports"]),
+				Origin:   fr.Origin,
+			})
+		case kind == "Ingress" && apiVersion == "networking.k8s.io/v1":
+			class, _ := asString(spec["ingressClassName"])
+			if class == "" {
+				class = asStringMap(metadata["annotations"])[ingressClassAnnotation]
+			}
+			cluster.Routes = append(cluster.Routes, &RouteEntity{
+				Kind: kind, Name: name, Namespace: namespace, Class: class,
+				Backends: ingressBackends(spec, namespace), Origin: fr.Origin,
+			})
+		case traefikRouteKinds[kind] && isTraefikAPIVersion(apiVersion):
+			cluster.Routes = append(cluster.Routes, &RouteEntity{
+				Kind: kind, Name: name, Namespace: namespace,
+				Backends: traefikBackends(kind, spec, namespace), Origin: fr.Origin,
+			})
+		case kind == "IngressClass" && apiVersion == "networking.k8s.io/v1":
+			controller, _ := asString(spec["controller"])
+			cluster.IngressClasses = append(cluster.IngressClasses, &IngressClassEntity{
+				Name: name, Controller: controller,
+				Default: asStringMap(metadata["annotations"])[defaultIngressClassAnnotation] == "true",
+				Origin:  fr.Origin,
 			})
 		case workloadKinds[kind]:
+			podSpec := podTemplateSpec(kind, rec)
 			cluster.Workloads = append(cluster.Workloads, &WorkloadEntity{
 				Kind: kind, Name: name, Namespace: namespace,
 				PodLabels:      podTemplateLabels(kind, rec),
 				SelectorLabels: workloadSelectorLabels(kind, rec),
+				Images:         containerImages(podSpec),
+				Ports:          containerPorts(podSpec),
 				Origin:         fr.Origin,
 			})
 		}
@@ -420,6 +506,147 @@ func podTemplateLabels(kind string, rec map[string]any) map[string]string {
 		md := nestedRecord(rec, "spec", "template", "metadata")
 		return asStringMap(md["labels"])
 	}
+}
+
+// podTemplateSpec is the spec of the pods a workload manages, from the path
+// appropriate to its kind.
+func podTemplateSpec(kind string, rec map[string]any) map[string]any {
+	switch kind {
+	case "Pod":
+		return nestedRecord(rec, "spec")
+	case "CronJob":
+		return nestedRecord(rec, "spec", "jobTemplate", "spec", "template", "spec")
+	default: // Deployment, StatefulSet, DaemonSet, ReplicaSet, Job
+		return nestedRecord(rec, "spec", "template", "spec")
+	}
+}
+
+// containerImages are the images of a pod spec's containers. Init containers
+// are left out: they finish before the pod serves anything.
+func containerImages(podSpec map[string]any) []string {
+	var out []string
+	for _, c := range asRecords(podSpec["containers"]) {
+		if image, ok := asString(c["image"]); ok && image != "" {
+			out = append(out, image)
+		}
+	}
+	return out
+}
+
+// containerPorts are the ports a pod spec's containers declare. A port with no
+// protocol is TCP.
+func containerPorts(podSpec map[string]any) []ContainerPort {
+	var out []ContainerPort
+	for _, c := range asRecords(podSpec["containers"]) {
+		for _, p := range asRecords(c["ports"]) {
+			port := intOf(p["containerPort"])
+			if port == 0 {
+				continue
+			}
+			out = append(out, ContainerPort{Name: firstString(p["name"]), Port: port, Protocol: protocolOf(p["protocol"])})
+		}
+	}
+	return out
+}
+
+// parseServicePorts parses a Service's spec.ports.
+func parseServicePorts(v any) []ServicePort {
+	var out []ServicePort
+	for _, p := range asRecords(v) {
+		port := intOf(p["port"])
+		if port == 0 {
+			continue
+		}
+		out = append(out, ServicePort{
+			Name: firstString(p["name"]), Port: port,
+			TargetPort: scalarString(p["targetPort"]), Protocol: protocolOf(p["protocol"]),
+		})
+	}
+	return out
+}
+
+// protocolOf is a port's protocol, TCP when it names none.
+func protocolOf(v any) string {
+	if s, _ := asString(v); s != "" {
+		return s
+	}
+	return "TCP"
+}
+
+const (
+	// ingressClassAnnotation names an Ingress's class on Ingresses written
+	// before ingressClassName, and is still read by most controllers.
+	ingressClassAnnotation = "kubernetes.io/ingress.class"
+	// defaultIngressClassAnnotation marks the IngressClass that serves the
+	// Ingresses naming no class.
+	defaultIngressClassAnnotation = "ingressclass.kubernetes.io/is-default-class"
+)
+
+// traefikRouteKinds are Traefik's route kinds, all of which name Services the
+// same way.
+var traefikRouteKinds = map[string]bool{"IngressRoute": true, "IngressRouteTCP": true, "IngressRouteUDP": true}
+
+// isTraefikAPIVersion reports whether apiVersion is Traefik's API group, under
+// its current name or the one before.
+func isTraefikAPIVersion(apiVersion string) bool {
+	return strings.HasPrefix(apiVersion, "traefik.io/") || strings.HasPrefix(apiVersion, "traefik.containo.us/")
+}
+
+// ingressBackends are the Services an Ingress sends traffic to: its default
+// backend and each path's. A backend that is a resource rather than a Service is
+// left out.
+func ingressBackends(spec map[string]any, namespace string) []RouteBackend {
+	var out []RouteBackend
+	add := func(backend map[string]any) {
+		svc := nestedRecord(backend, "service")
+		name := firstString(svc["name"])
+		if name == "" {
+			return
+		}
+		port := nestedRecord(svc, "port")
+		p := firstString(port["name"])
+		if n := intOf(port["number"]); n != 0 {
+			p = strconv.Itoa(n)
+		}
+		out = append(out, RouteBackend{Service: name, Namespace: namespace, Port: p, Protocol: "TCP"})
+	}
+	if b := nestedRecord(spec, "defaultBackend"); b != nil {
+		add(b)
+	}
+	for _, rule := range asRecords(spec["rules"]) {
+		for _, path := range asRecords(nestedRecord(rule, "http")["paths"]) {
+			add(nestedRecord(path, "backend"))
+		}
+	}
+	return out
+}
+
+// traefikBackends are the Services a Traefik route sends traffic to. A service
+// of kind TraefikService is Traefik's own load balancer over other services,
+// not a Kubernetes Service, and is left out.
+func traefikBackends(kind string, spec map[string]any, namespace string) []RouteBackend {
+	protocol := "TCP"
+	if kind == "IngressRouteUDP" {
+		protocol = "UDP"
+	}
+	var out []RouteBackend
+	for _, route := range asRecords(spec["routes"]) {
+		for _, svc := range asRecords(route["services"]) {
+			if k := firstString(svc["kind"]); k != "" && k != "Service" {
+				continue
+			}
+			name := firstString(svc["name"])
+			if name == "" {
+				continue
+			}
+			ns := firstString(svc["namespace"])
+			if ns == "" {
+				ns = namespace
+			}
+			out = append(out, RouteBackend{Service: name, Namespace: ns, Port: scalarString(svc["port"]), Protocol: protocol})
+		}
+	}
+	return out
 }
 
 // workloadSelectorLabels extracts the workload's own equality-based pod
@@ -462,6 +689,21 @@ func asRecord(v any) (map[string]any, bool) {
 func asString(v any) (string, bool) {
 	s, ok := v.(string)
 	return s, ok
+}
+
+// asRecords is the objects in an array, skipping anything else.
+func asRecords(v any) []map[string]any {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(arr))
+	for _, x := range arr {
+		if rec, ok := asRecord(x); ok {
+			out = append(out, rec)
+		}
+	}
+	return out
 }
 
 func asStringArray(v any) []string {

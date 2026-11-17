@@ -21,7 +21,9 @@ func newListCmd() *cobra.Command {
 		Short: "List NetworkPolicy-relevant resources across the fleet",
 		Long: `list enumerates the resources ConfigHub holds that the NetworkPolicy model
 reasons about — NetworkPolicy, Namespace, pod-bearing workloads (Deployment,
-StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, Pod), and Service — with the
+StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, Pod), Service, and the routes
+that send an ingress controller's traffic to Services (Ingress, IngressClass, and
+Traefik's IngressRoute, IngressRouteTCP and IngressRouteUDP) — with the
 cluster, Space, and Unit each came from. Canonical base/policy definitions are
 included and flagged.
 
@@ -45,7 +47,7 @@ Filter with --kind, --cluster, and --namespace.`,
 	}
 	kit.AddOutputFlag(cmd, &output)
 	kit.AddFilterFlags(cmd, &filter)
-	kit.AddResourceFlags(cmd, &only, "NetworkPolicy", "Namespace", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob", "Pod", "Service")
+	kit.AddResourceFlags(cmd, &only, "NetworkPolicy", "Namespace", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob", "Pod", "Service", "Ingress", "IngressClass", "IngressRoute", "IngressRouteTCP", "IngressRouteUDP")
 	return cmd
 }
 
