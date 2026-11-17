@@ -372,7 +372,7 @@ Because a Link joins Units and a Unit can hold several resources, `allow-from-li
 Link's Unit slug to a resource name, prefers the Service, and skips Units it cannot disambiguate.
 
 `allow-from-refs` derives the allows from the references between resources instead, so no Links
-have to be recorded first. It reads two kinds of reference (`--refs`):
+have to be recorded first. It reads three kinds of reference (`--refs`):
 
 - Routes. An Ingress, or a Traefik IngressRoute, IngressRouteTCP or IngressRouteUDP, names
   Services, and the ingress controller serving it connects to the pods each Service selects. The
@@ -386,6 +386,14 @@ have to be recorded first. It reads two kinds of reference (`--refs`):
   (and `.cluster.local`), or a shorter name with a scheme or a port, and counts only when ConfigHub
   has the Service, so that a bare word is not taken for one. ConfigMaps are loaded for this command
   alone: Grafana dashboards make them large.
+- Scrape discovery. A metrics scraper finds the pods it scrapes through the Kubernetes API, so no
+  address names them: a Prometheus-format `scrape_configs` job with `kubernetes_sd_configs`, as
+  Prometheus and VictoriaMetrics read it, or an Alloy `discovery.kubernetes` feeding a
+  `prometheus.scrape` through `discovery.relabel`s, in the scraper's config as above. Each pod,
+  endpoint or Service the job's role finds in its namespaces is given the labels discovery would
+  give it -- namespace, pod labels and annotations, container port, the Service's -- and the job's
+  `keep`, `drop` and `replace` rules are applied in order; a target that survives is scraped at the
+  port its `__address__` ends up with.
 
 The port is the pod's: the Service port the route or address names (an address's scheme implies
 80 or 443; one with neither names every port), through its `targetPort`, to the container port of
@@ -408,11 +416,12 @@ would get is created once, in the upstream's Space, when the upstream's workload
 namespace with the same labels. The changes in each base are made in a ChangeSet and promoted by a
 ChangeOrder, as above, annotated with `netpol-no-allow-all-ingress` for an edit and
 `netpol-ingress-coverage` for a new policy; promoting the ChangeOrder clones the new policy Units
-into the variants. When the upstream has the change already, nothing is written, and the report
-says to promote it. Otherwise each variant is changed itself. Other references a policy could be derived from -- admission webhooks and
-APIServices, which the API server calls; addresses in Secrets; and scrape targets a metrics
-server finds through the Kubernetes API -- and the egress allows a source with egress policies
-needs, are not read yet.
+into the variants. When the upstream has the change already -- an edit's result, or a policy Unit holding the
+planned policy -- nothing is written, and the report says to promote it; a policy Unit there that
+differs is brought up to date. Otherwise each variant is changed itself. Other references a policy could be derived from -- admission webhooks and
+APIServices, which the API server calls; addresses in Secrets; and the Prometheus Operator's
+ServiceMonitors and PodMonitors -- and the egress allows a source with egress policies needs, are
+not read yet.
 
 ### 6.4 workload
 

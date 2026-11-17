@@ -452,11 +452,39 @@ func createInUpstream(ctx context.Context, c *cubapi.Client, l *lineage, up *goc
 		}
 	}
 	sort.Strings(moved.variants)
-	// A policy the upstream's Space has already is waiting to be promoted.
-	if _, err := cub.ResolveUnit(ctx, c, moved.dest.spaceSlug, create.Name); err == nil {
-		moved.done = true
+	// A policy the upstream's Space has already, as planned, is waiting to be
+	// promoted; one that differs is brought up to date.
+	done, err := baseHasPolicy(ctx, c, moved.dest.spaceSlug, create)
+	if err != nil {
+		return nil, "", err
 	}
+	moved.done = done
 	return moved, "", nil
+}
+
+// baseHasPolicy reports whether a Space has the Unit a create would make,
+// holding the policy as planned: the same pod selector and ingress rules.
+func baseHasPolicy(ctx context.Context, c *cubapi.Client, spaceSlug string, create *netpol.PolicyCreate) (bool, error) {
+	ref, err := cub.ResolveUnit(ctx, c, spaceSlug, create.Name)
+	if err != nil {
+		return false, nil
+	}
+	data, _, err := cub.GetUnitData(ctx, c, ref)
+	if err != nil {
+		return false, err
+	}
+	var resources []netpol.FleetResource
+	for _, doc := range cub.SplitDocuments(data) {
+		var m map[string]any
+		if yaml.Unmarshal([]byte(doc), &m) == nil && m != nil {
+			resources = append(resources, netpol.FleetResource{Doc: m})
+		}
+	}
+	cl := netpol.BuildFleet(resources)[""]
+	if cl == nil {
+		return false, nil
+	}
+	return netpol.SamePolicy(policiesByName(cl)[create.Name], create), nil
 }
 
 // baseRollout is the ChangeSet and ChangeOrder a base's changes are made in.

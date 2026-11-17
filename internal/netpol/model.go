@@ -253,6 +253,9 @@ type WorkloadEntity struct {
 	// Ports are the ports the pod's containers declare, which a Service's named
 	// targetPort resolves to.
 	Ports []ContainerPort `json:"ports,omitempty"`
+	// PodAnnotations are the annotations on the pods it manages, which a
+	// metrics scraper's discovery selects on.
+	PodAnnotations map[string]string `json:"-"`
 	// ConfigText is the text of the pod's containers' commands, arguments and
 	// env values, in which a workload names the Services it connects to.
 	ConfigText []string `json:"-"`
@@ -287,9 +290,11 @@ type ConfigMapEntity struct {
 
 // ContainerPort is a port a container declares.
 type ContainerPort struct {
-	Name     string `json:"name,omitempty"`
-	Port     int    `json:"port"`
-	Protocol string `json:"protocol"`
+	// Container is the name of the container declaring it.
+	Container string `json:"container,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Port      int    `json:"port"`
+	Protocol  string `json:"protocol"`
 }
 
 // PolicySelector returns the labels a generated NetworkPolicy should use to
@@ -322,7 +327,11 @@ type ServiceEntity struct {
 	Namespace string            `json:"namespace"`
 	Selector  map[string]string `json:"selector,omitempty"`
 	Ports     []ServicePort     `json:"ports,omitempty"`
-	Origin    ResourceOrigin    `json:"origin"`
+	// Labels and Annotations are the Service's own, which a metrics scraper's
+	// discovery selects on.
+	Labels      map[string]string `json:"-"`
+	Annotations map[string]string `json:"-"`
+	Origin      ResourceOrigin    `json:"origin"`
 }
 
 // ServicePort is one of a Service's ports. TargetPort is the pod port traffic to
@@ -486,7 +495,8 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 				Name: name, Namespace: namespace,
 				Selector: asStringMap(spec["selector"]),
 				Ports:    parseServicePorts(spec["ports"]),
-				Origin:   fr.Origin,
+				Labels:   labels, Annotations: asStringMap(metadata["annotations"]),
+				Origin: fr.Origin,
 			})
 		case kind == "Ingress" && apiVersion == "networking.k8s.io/v1":
 			class, _ := asString(spec["ingressClassName"])
@@ -519,6 +529,7 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 			cluster.Workloads = append(cluster.Workloads, &WorkloadEntity{
 				Kind: kind, Name: name, Namespace: namespace,
 				PodLabels:      podTemplateLabels(kind, rec),
+				PodAnnotations: podTemplateAnnotations(kind, rec),
 				SelectorLabels: workloadSelectorLabels(kind, rec),
 				Images:         containerImages(podSpec),
 				Ports:          containerPorts(podSpec),
@@ -583,7 +594,7 @@ func containerPorts(podSpec map[string]any) []ContainerPort {
 			if port == 0 {
 				continue
 			}
-			out = append(out, ContainerPort{Name: firstString(p["name"]), Port: port, Protocol: protocolOf(p["protocol"])})
+			out = append(out, ContainerPort{Container: firstString(c["name"]), Name: firstString(p["name"]), Port: port, Protocol: protocolOf(p["protocol"])})
 		}
 	}
 	return out
@@ -783,6 +794,19 @@ func traefikBackends(kind string, spec map[string]any, namespace string) []Route
 		}
 	}
 	return out
+}
+
+// podTemplateAnnotations extracts the annotations on the pods a workload
+// manages.
+func podTemplateAnnotations(kind string, rec map[string]any) map[string]string {
+	switch kind {
+	case "Pod":
+		return asStringMap(nestedRecord(rec, "metadata")["annotations"])
+	case "CronJob":
+		return asStringMap(nestedRecord(rec, "spec", "jobTemplate", "spec", "template", "metadata")["annotations"])
+	default:
+		return asStringMap(nestedRecord(rec, "spec", "template", "metadata")["annotations"])
+	}
 }
 
 // workloadSelectorLabels extracts the workload's own equality-based pod

@@ -301,6 +301,18 @@ func (cr *PolicyCreate) entity() *NetworkPolicyEntity {
 	}
 }
 
+// SamePolicy reports whether p is the policy the create makes: the same pod
+// selector, isolating ingress alone, with the same ingress rules.
+func SamePolicy(p *NetworkPolicyEntity, cr *PolicyCreate) bool {
+	if p == nil {
+		return false
+	}
+	want := cr.entity()
+	ingress, egress := p.Isolates()
+	return ingress && !egress && CanonicalLabels(p.PodSelector.MatchLabels) == CanonicalLabels(want.PodSelector.MatchLabels) &&
+		len(p.PodSelector.MatchExpressions) == 0 && IngressKey(p) == IngressKey(want)
+}
+
 // YAML is the NetworkPolicy the create makes.
 func (cr *PolicyCreate) YAML() string {
 	spec := map[string]any{

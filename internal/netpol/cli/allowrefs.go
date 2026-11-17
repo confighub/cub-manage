@@ -34,7 +34,7 @@ func newAllowFromRefsCmd() *cobra.Command {
 connects to another, and changes NetworkPolicies so that each destination admits
 those connections and no others: no Links have to be recorded first.
 
-It reads two kinds of reference, chosen with --refs (both by default):
+It reads three kinds of reference, chosen with --refs (all by default):
 
   routes   An Ingress, or a Traefik IngressRoute, IngressRouteTCP or
            IngressRouteUDP, names Services, and the ingress controller serving
@@ -55,6 +55,15 @@ It reads two kinds of reference, chosen with --refs (both by default):
            http://loki:3100; the Service has to be in ConfigHub, and the port
            is the one the address names or its scheme implies (http 80, https
            443), or every port.
+  scrape   A metrics scraper's Kubernetes discovery is a connection from the
+           scraper to the pods it finds: a scrape_configs job with
+           kubernetes_sd_configs, as Prometheus and VictoriaMetrics read it, or
+           an Alloy discovery.kubernetes feeding a prometheus.scrape, in the
+           scraper's config as above. Each pod, endpoint or Service the role
+           finds in the job's namespaces is given the labels discovery would
+           give it, and the job's keep, drop and replace rules are applied; a
+           target that survives is scraped at the port its __address__ ends
+           up with.
 
 Policies add up, so a rule admitting a few sources does nothing beside a rule
 admitting every source. For each destination, allow-from-refs:
@@ -120,7 +129,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 				return err
 			}
 			load := snapshot.Load
-			if kinds[refsConfig] {
+			if kinds[refsConfig] || kinds[refsScrape] {
 				load = snapshot.LoadWithConfigMaps
 			}
 			snap, err := load(cmd.Context(), client, where)
@@ -165,7 +174,7 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 	kit.AddFilterFlags(cmd, &filter)
 	kit.AddClusterFlag(cmd, &clusterFilter)
 	cmd.Flags().StringVar(&namespaceFilter, "namespace", "", "only destinations in this namespace")
-	cmd.Flags().StringSliceVar(&refKinds, "refs", []string{refsRoutes, refsConfig}, "the references to read: routes, config, or both")
+	cmd.Flags().StringSliceVar(&refKinds, "refs", []string{refsRoutes, refsConfig, refsScrape}, "the references to read: routes, config and scrape, or some of them")
 	cmd.Flags().StringVar(&controller, "ingress-controller", "", "the workload serving every route, as <namespace>/<workload>, when its image does not say")
 	cmd.Flags().BoolVar(&noUpstream, "no-upstream", false, "change each variant's policies, even when every variant would take the same change from its upstream Unit")
 	cmd.Flags().StringVar(&rolloutSlug, "rollout", "netpol-allow-from-refs", "name of the ChangeSet and ChangeOrder each base's changes are made in")
@@ -178,13 +187,14 @@ This is a dry run unless you pass --commit --change-desc "…".`,
 const (
 	refsRoutes = "routes"
 	refsConfig = "config"
+	refsScrape = "scrape"
 )
 
 func parseRefKinds(kinds []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	for _, k := range kinds {
-		if k != refsRoutes && k != refsConfig {
-			return nil, fmt.Errorf("--refs takes %s and %s, not %q", refsRoutes, refsConfig, k)
+		if k != refsRoutes && k != refsConfig && k != refsScrape {
+			return nil, fmt.Errorf("--refs takes %s, %s and %s, not %q", refsRoutes, refsConfig, refsScrape, k)
 		}
 		out[k] = true
 	}
@@ -214,6 +224,10 @@ func planRefs(snap *snapshot.Snapshot, kinds map[string]bool, clusterFilter, nam
 		}
 		if kinds[refsConfig] {
 			f, s := netpol.ConfigFlows(c)
+			flows, skipped = append(flows, f...), append(skipped, s...)
+		}
+		if kinds[refsScrape] {
+			f, s := netpol.ScrapeFlows(c)
 			flows, skipped = append(flows, f...), append(skipped, s...)
 		}
 		if namespaceFilter != "" {
