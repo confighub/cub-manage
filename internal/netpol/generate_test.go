@@ -4,6 +4,8 @@
 package netpol
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -255,5 +257,40 @@ func TestPolicySelectorFallsBackToPodLabels(t *testing.T) {
 	w := findWorkload(c, "standalone")
 	if got := w.PolicySelector(); len(got) != 1 || got["app"] != "standalone" {
 		t.Errorf("PolicySelector() = %v, want the pod's own labels", got)
+	}
+}
+
+// labelValue is what the API server accepts as a label value.
+var labelValue = regexp.MustCompile(`^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$`)
+
+// TestGeneratedLabelsAreValid checks the labels of every policy the tool
+// generates, which the API server would reject otherwise, failing the sync.
+func TestGeneratedLabelsAreValid(t *testing.T) {
+	long := &WorkloadEntity{Kind: "Deployment", Name: strings.Repeat("a-long-workload-name-", 3), Namespace: "ns",
+		SelectorLabels: map[string]string{"app": "x"}}
+	other := &WorkloadEntity{Kind: "Deployment", Name: "client", Namespace: "ns", SelectorLabels: map[string]string{"app": "client"}}
+	var manifests []string
+	add := func(_, manifest string) { manifests = append(manifests, manifest) }
+	add(DefaultDenyYAML("ns", true))
+	add(DefaultDenyEgressYAML("ns"))
+	add(AllowYAML(other, long, false, "8080"))
+	add(AllowYAML(other, long, true, ""))
+	add(AllowIngressYAML(long, []*WorkloadEntity{other}, ""))
+	manifests = append(manifests, (&PolicyCreate{Dest: long, Name: "allow-" + long.Name + "-ingress",
+		Rules: []NetworkPolicyRule{{Peers: []NetworkPolicyPeer{sourcePeer(other)}}}}).YAML())
+	for _, m := range manifests {
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(m), &doc); err != nil {
+			t.Fatal(err)
+		}
+		md := nestedRecord(doc, "metadata")
+		for k, v := range asStringMap(md["labels"]) {
+			if len(v) > 63 || !labelValue.MatchString(v) {
+				t.Errorf("label %s=%q is not a valid label value:\n%s", k, v, m)
+			}
+		}
+		if asStringMap(md["annotations"])[managedByAnnotation] != managedBy {
+			t.Errorf("not annotated as the tool's:\n%s", m)
+		}
 	}
 }

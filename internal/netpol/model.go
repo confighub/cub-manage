@@ -247,7 +247,54 @@ type WorkloadEntity struct {
 	Namespace      string            `json:"namespace"`
 	PodLabels      map[string]string `json:"podLabels,omitempty"`
 	SelectorLabels map[string]string `json:"selectorLabels,omitempty"`
-	Origin         ResourceOrigin    `json:"origin"`
+	// Images are the images of the pod's containers, which tell what a workload
+	// runs: an ingress controller, say.
+	Images []string `json:"images,omitempty"`
+	// Ports are the ports the pod's containers declare, which a Service's named
+	// targetPort resolves to.
+	Ports []ContainerPort `json:"ports,omitempty"`
+	// PodAnnotations are the annotations on the pods it manages, which a
+	// metrics scraper's discovery selects on.
+	PodAnnotations map[string]string `json:"-"`
+	// ConfigText is the text of the pod's containers' commands, arguments and
+	// env values, in which a workload names the Services it connects to.
+	ConfigText []string `json:"-"`
+	// ConfigMaps are the ConfigMaps in its namespace the pod reads, by a
+	// volume or by env.
+	ConfigMaps []string `json:"-"`
+	// Discovers are the ConfigMaps a container finds by label through the
+	// Kubernetes API, as a k8s-sidecar does, rather than mounting them.
+	Discovers []ConfigMapDiscovery `json:"-"`
+	Origin    ResourceOrigin       `json:"origin"`
+}
+
+// ConfigMapDiscovery is a container finding ConfigMaps by a label, such as a
+// kiwigrid k8s-sidecar writing them to a volume for the container beside it.
+type ConfigMapDiscovery struct {
+	Container string
+	Label     string
+	// Value is the label value a ConfigMap has to have, any when empty.
+	Value string
+	// Namespaces it looks in: its own when empty, every one when "ALL".
+	Namespaces []string
+}
+
+// ConfigMapEntity is a v1 ConfigMap, read for the Service addresses in it.
+type ConfigMapEntity struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Data      map[string]string `json:"-"`
+	Origin    ResourceOrigin    `json:"origin"`
+}
+
+// ContainerPort is a port a container declares.
+type ContainerPort struct {
+	// Container is the name of the container declaring it.
+	Container string `json:"container,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Port      int    `json:"port"`
+	Protocol  string `json:"protocol"`
 }
 
 // PolicySelector returns the labels a generated NetworkPolicy should use to
@@ -279,7 +326,56 @@ type ServiceEntity struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
 	Selector  map[string]string `json:"selector,omitempty"`
-	Origin    ResourceOrigin    `json:"origin"`
+	Ports     []ServicePort     `json:"ports,omitempty"`
+	// Labels and Annotations are the Service's own, which a metrics scraper's
+	// discovery selects on.
+	Labels      map[string]string `json:"-"`
+	Annotations map[string]string `json:"-"`
+	Origin      ResourceOrigin    `json:"origin"`
+}
+
+// ServicePort is one of a Service's ports. TargetPort is the pod port traffic to
+// it goes to, a number or a container port's name; empty, it is Port.
+type ServicePort struct {
+	Name       string `json:"name,omitempty"`
+	Port       int    `json:"port"`
+	TargetPort string `json:"targetPort,omitempty"`
+	Protocol   string `json:"protocol"`
+}
+
+// RouteEntity is a resource that tells an ingress controller to send traffic to
+// Services: an Ingress, or a Traefik IngressRoute, IngressRouteTCP or
+// IngressRouteUDP. The controller's pods are what connect to the Services' pods,
+// so a route says which workloads the controller has to reach.
+type RouteEntity struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	// Class is an Ingress's class: its ingressClassName, or the
+	// kubernetes.io/ingress.class annotation. Empty, the cluster's default
+	// IngressClass serves it.
+	Class    string         `json:"class,omitempty"`
+	Backends []RouteBackend `json:"backends,omitempty"`
+	Origin   ResourceOrigin `json:"origin"`
+}
+
+// RouteBackend is a Service a route sends traffic to. Port is the Service port,
+// as a number or a name, and empty when the route names none. Protocol is the
+// protocol the route carries: UDP for an IngressRouteUDP, TCP otherwise.
+type RouteBackend struct {
+	Service   string `json:"service"`
+	Namespace string `json:"namespace"`
+	Port      string `json:"port,omitempty"`
+	Protocol  string `json:"protocol"`
+}
+
+// IngressClassEntity is a networking.k8s.io/v1 IngressClass: which controller
+// serves the Ingresses of the class, and whether it serves those naming none.
+type IngressClassEntity struct {
+	Name       string         `json:"name"`
+	Controller string         `json:"controller"`
+	Default    bool           `json:"default,omitempty"`
+	Origin     ResourceOrigin `json:"origin"`
 }
 
 // EnforcerFact is the Target fact naming what enforces NetworkPolicy on the
@@ -329,6 +425,11 @@ type ClusterNetpol struct {
 	Workloads       []*WorkloadEntity      `json:"workloads"`
 	Namespaces      []*NamespaceEntity     `json:"namespaces"`
 	Services        []*ServiceEntity       `json:"services"`
+	Routes          []*RouteEntity         `json:"routes,omitempty"`
+	IngressClasses  []*IngressClassEntity  `json:"ingressClasses,omitempty"`
+	// ConfigMaps are loaded only by the commands that read Service addresses
+	// in them.
+	ConfigMaps []*ConfigMapEntity `json:"-"`
 }
 
 // workloadKinds is the set of pod-bearing kinds whose pod-template labels a
@@ -392,13 +493,49 @@ func BuildFleet(resources []FleetResource) map[string]*ClusterNetpol {
 		case kind == "Service" && apiVersion == "v1":
 			cluster.Services = append(cluster.Services, &ServiceEntity{
 				Name: name, Namespace: namespace,
-				Selector: asStringMap(spec["selector"]), Origin: fr.Origin,
+				Selector: asStringMap(spec["selector"]),
+				Ports:    parseServicePorts(spec["ports"]),
+				Labels:   labels, Annotations: asStringMap(metadata["annotations"]),
+				Origin: fr.Origin,
+			})
+		case kind == "Ingress" && apiVersion == "networking.k8s.io/v1":
+			class, _ := asString(spec["ingressClassName"])
+			if class == "" {
+				class = asStringMap(metadata["annotations"])[ingressClassAnnotation]
+			}
+			cluster.Routes = append(cluster.Routes, &RouteEntity{
+				Kind: kind, Name: name, Namespace: namespace, Class: class,
+				Backends: ingressBackends(spec, namespace), Origin: fr.Origin,
+			})
+		case traefikRouteKinds[kind] && isTraefikAPIVersion(apiVersion):
+			cluster.Routes = append(cluster.Routes, &RouteEntity{
+				Kind: kind, Name: name, Namespace: namespace,
+				Backends: traefikBackends(kind, spec, namespace), Origin: fr.Origin,
+			})
+		case kind == "IngressClass" && apiVersion == "networking.k8s.io/v1":
+			controller, _ := asString(spec["controller"])
+			cluster.IngressClasses = append(cluster.IngressClasses, &IngressClassEntity{
+				Name: name, Controller: controller,
+				Default: asStringMap(metadata["annotations"])[defaultIngressClassAnnotation] == "true",
+				Origin:  fr.Origin,
+			})
+		case kind == "ConfigMap" && apiVersion == "v1":
+			cluster.ConfigMaps = append(cluster.ConfigMaps, &ConfigMapEntity{
+				Name: name, Namespace: namespace, Labels: labels,
+				Data: asStringMap(rec["data"]), Origin: fr.Origin,
 			})
 		case workloadKinds[kind]:
+			podSpec := podTemplateSpec(kind, rec)
 			cluster.Workloads = append(cluster.Workloads, &WorkloadEntity{
 				Kind: kind, Name: name, Namespace: namespace,
 				PodLabels:      podTemplateLabels(kind, rec),
+				PodAnnotations: podTemplateAnnotations(kind, rec),
 				SelectorLabels: workloadSelectorLabels(kind, rec),
+				Images:         containerImages(podSpec),
+				Ports:          containerPorts(podSpec),
+				ConfigText:     containerConfigText(podSpec),
+				ConfigMaps:     podConfigMaps(podSpec),
+				Discovers:      sidecarDiscoveries(podSpec),
 				Origin:         fr.Origin,
 			})
 		}
@@ -419,6 +556,256 @@ func podTemplateLabels(kind string, rec map[string]any) map[string]string {
 	default: // Deployment, StatefulSet, DaemonSet, ReplicaSet, Job
 		md := nestedRecord(rec, "spec", "template", "metadata")
 		return asStringMap(md["labels"])
+	}
+}
+
+// podTemplateSpec is the spec of the pods a workload manages, from the path
+// appropriate to its kind.
+func podTemplateSpec(kind string, rec map[string]any) map[string]any {
+	switch kind {
+	case "Pod":
+		return nestedRecord(rec, "spec")
+	case "CronJob":
+		return nestedRecord(rec, "spec", "jobTemplate", "spec", "template", "spec")
+	default: // Deployment, StatefulSet, DaemonSet, ReplicaSet, Job
+		return nestedRecord(rec, "spec", "template", "spec")
+	}
+}
+
+// containerImages are the images of a pod spec's containers. Init containers
+// are left out: they finish before the pod serves anything.
+func containerImages(podSpec map[string]any) []string {
+	var out []string
+	for _, c := range asRecords(podSpec["containers"]) {
+		if image, ok := asString(c["image"]); ok && image != "" {
+			out = append(out, image)
+		}
+	}
+	return out
+}
+
+// containerPorts are the ports a pod spec's containers declare. A port with no
+// protocol is TCP.
+func containerPorts(podSpec map[string]any) []ContainerPort {
+	var out []ContainerPort
+	for _, c := range asRecords(podSpec["containers"]) {
+		for _, p := range asRecords(c["ports"]) {
+			port := intOf(p["containerPort"])
+			if port == 0 {
+				continue
+			}
+			out = append(out, ContainerPort{Container: firstString(c["name"]), Name: firstString(p["name"]), Port: port, Protocol: protocolOf(p["protocol"])})
+		}
+	}
+	return out
+}
+
+// allContainers are a pod spec's containers and init containers, which
+// connect to Services alike.
+func allContainers(podSpec map[string]any) []map[string]any {
+	return append(asRecords(podSpec["initContainers"]), asRecords(podSpec["containers"])...)
+}
+
+// containerConfigText is the text of the containers' commands, arguments and
+// env values.
+func containerConfigText(podSpec map[string]any) []string {
+	var out []string
+	for _, c := range allContainers(podSpec) {
+		out = append(out, asStringArray(c["command"])...)
+		out = append(out, asStringArray(c["args"])...)
+		for _, e := range asRecords(c["env"]) {
+			if v, ok := asString(e["value"]); ok && v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// podConfigMaps are the ConfigMaps a pod reads: those its volumes mount,
+// directly or projected, and those its containers' env reads.
+func podConfigMaps(podSpec map[string]any) []string {
+	var out []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	for _, v := range asRecords(podSpec["volumes"]) {
+		add(firstString(nestedRecord(v, "configMap")["name"]))
+		for _, src := range asRecords(nestedRecord(v, "projected")["sources"]) {
+			add(firstString(nestedRecord(src, "configMap")["name"]))
+		}
+	}
+	for _, c := range allContainers(podSpec) {
+		for _, e := range asRecords(c["envFrom"]) {
+			add(firstString(nestedRecord(e, "configMapRef")["name"]))
+		}
+		for _, e := range asRecords(c["env"]) {
+			add(firstString(nestedRecord(e, "valueFrom", "configMapKeyRef")["name"]))
+		}
+	}
+	return out
+}
+
+// k8sSidecarImage is the repository of kiwigrid's k8s-sidecar, which finds
+// ConfigMaps by label through the Kubernetes API and writes them to a volume,
+// as Grafana's chart uses it for datasources and dashboards.
+const k8sSidecarImage = "k8s-sidecar"
+
+// sidecarDiscoveries are the ConfigMaps a pod's k8s-sidecar containers find,
+// from their LABEL, LABEL_VALUE, NAMESPACE and RESOURCE settings. A sidecar
+// finding only Secrets finds no ConfigMap.
+func sidecarDiscoveries(podSpec map[string]any) []ConfigMapDiscovery {
+	var out []ConfigMapDiscovery
+	for _, c := range allContainers(podSpec) {
+		repo := imageRepository(firstString(c["image"]))
+		if repo != k8sSidecarImage && !strings.HasSuffix(repo, "/"+k8sSidecarImage) {
+			continue
+		}
+		env := map[string]string{}
+		for _, e := range asRecords(c["env"]) {
+			if v, ok := asString(e["value"]); ok {
+				env[firstString(e["name"])] = v
+			}
+		}
+		if env["LABEL"] == "" || strings.EqualFold(env["RESOURCE"], "secret") {
+			continue
+		}
+		d := ConfigMapDiscovery{Container: firstString(c["name"]), Label: env["LABEL"], Value: env["LABEL_VALUE"]}
+		for _, ns := range strings.Split(env["NAMESPACE"], ",") {
+			if ns = strings.TrimSpace(ns); ns != "" {
+				d.Namespaces = append(d.Namespaces, ns)
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// finds reports whether the discovery finds a ConfigMap, for a pod in
+// namespace.
+func (d ConfigMapDiscovery) finds(cm *ConfigMapEntity, namespace string) bool {
+	v, ok := cm.Labels[d.Label]
+	if !ok || (d.Value != "" && v != d.Value) {
+		return false
+	}
+	if len(d.Namespaces) == 0 {
+		return NamespaceOf(cm.Namespace) == namespace
+	}
+	return slices.Contains(d.Namespaces, "ALL") || slices.Contains(d.Namespaces, NamespaceOf(cm.Namespace))
+}
+
+// parseServicePorts parses a Service's spec.ports.
+func parseServicePorts(v any) []ServicePort {
+	var out []ServicePort
+	for _, p := range asRecords(v) {
+		port := intOf(p["port"])
+		if port == 0 {
+			continue
+		}
+		out = append(out, ServicePort{
+			Name: firstString(p["name"]), Port: port,
+			TargetPort: scalarString(p["targetPort"]), Protocol: protocolOf(p["protocol"]),
+		})
+	}
+	return out
+}
+
+// protocolOf is a port's protocol, TCP when it names none.
+func protocolOf(v any) string {
+	if s, _ := asString(v); s != "" {
+		return s
+	}
+	return "TCP"
+}
+
+const (
+	// ingressClassAnnotation names an Ingress's class on Ingresses written
+	// before ingressClassName, and is still read by most controllers.
+	ingressClassAnnotation = "kubernetes.io/ingress.class"
+	// defaultIngressClassAnnotation marks the IngressClass that serves the
+	// Ingresses naming no class.
+	defaultIngressClassAnnotation = "ingressclass.kubernetes.io/is-default-class"
+)
+
+// traefikRouteKinds are Traefik's route kinds, all of which name Services the
+// same way.
+var traefikRouteKinds = map[string]bool{"IngressRoute": true, "IngressRouteTCP": true, "IngressRouteUDP": true}
+
+// isTraefikAPIVersion reports whether apiVersion is Traefik's API group, under
+// its current name or the one before.
+func isTraefikAPIVersion(apiVersion string) bool {
+	return strings.HasPrefix(apiVersion, "traefik.io/") || strings.HasPrefix(apiVersion, "traefik.containo.us/")
+}
+
+// ingressBackends are the Services an Ingress sends traffic to: its default
+// backend and each path's. A backend that is a resource rather than a Service is
+// left out.
+func ingressBackends(spec map[string]any, namespace string) []RouteBackend {
+	var out []RouteBackend
+	add := func(backend map[string]any) {
+		svc := nestedRecord(backend, "service")
+		name := firstString(svc["name"])
+		if name == "" {
+			return
+		}
+		port := nestedRecord(svc, "port")
+		p := firstString(port["name"])
+		if n := intOf(port["number"]); n != 0 {
+			p = strconv.Itoa(n)
+		}
+		out = append(out, RouteBackend{Service: name, Namespace: namespace, Port: p, Protocol: "TCP"})
+	}
+	if b := nestedRecord(spec, "defaultBackend"); b != nil {
+		add(b)
+	}
+	for _, rule := range asRecords(spec["rules"]) {
+		for _, path := range asRecords(nestedRecord(rule, "http")["paths"]) {
+			add(nestedRecord(path, "backend"))
+		}
+	}
+	return out
+}
+
+// traefikBackends are the Services a Traefik route sends traffic to. A service
+// of kind TraefikService is Traefik's own load balancer over other services,
+// not a Kubernetes Service, and is left out.
+func traefikBackends(kind string, spec map[string]any, namespace string) []RouteBackend {
+	protocol := "TCP"
+	if kind == "IngressRouteUDP" {
+		protocol = "UDP"
+	}
+	var out []RouteBackend
+	for _, route := range asRecords(spec["routes"]) {
+		for _, svc := range asRecords(route["services"]) {
+			if k := firstString(svc["kind"]); k != "" && k != "Service" {
+				continue
+			}
+			name := firstString(svc["name"])
+			if name == "" {
+				continue
+			}
+			ns := firstString(svc["namespace"])
+			if ns == "" {
+				ns = namespace
+			}
+			out = append(out, RouteBackend{Service: name, Namespace: ns, Port: scalarString(svc["port"]), Protocol: protocol})
+		}
+	}
+	return out
+}
+
+// podTemplateAnnotations extracts the annotations on the pods a workload
+// manages.
+func podTemplateAnnotations(kind string, rec map[string]any) map[string]string {
+	switch kind {
+	case "Pod":
+		return asStringMap(nestedRecord(rec, "metadata")["annotations"])
+	case "CronJob":
+		return asStringMap(nestedRecord(rec, "spec", "jobTemplate", "spec", "template", "metadata")["annotations"])
+	default:
+		return asStringMap(nestedRecord(rec, "spec", "template", "metadata")["annotations"])
 	}
 }
 
@@ -462,6 +849,21 @@ func asRecord(v any) (map[string]any, bool) {
 func asString(v any) (string, bool) {
 	s, ok := v.(string)
 	return s, ok
+}
+
+// asRecords is the objects in an array, skipping anything else.
+func asRecords(v any) []map[string]any {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(arr))
+	for _, x := range arr {
+		if rec, ok := asRecord(x); ok {
+			out = append(out, rec)
+		}
+	}
+	return out
 }
 
 func asStringArray(v any) []string {

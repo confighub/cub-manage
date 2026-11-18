@@ -241,7 +241,7 @@ func uploadUnitDataIfMatch(ctx context.Context, c *cubapi.Client, spaceID, unitI
 func addedDiff(data string) (*goclientnew.ConfigDiff, error) {
 	add := goclientnew.Add
 	diff := &goclientnew.ConfigDiff{}
-	for _, doc := range splitDocuments(data) {
+	for _, doc := range SplitDocuments(data) {
 		var meta struct {
 			APIVersion string `json:"apiVersion"`
 			Kind       string `json:"kind"`
@@ -266,8 +266,8 @@ func addedDiff(data string) (*goclientnew.ConfigDiff, error) {
 	return diff, nil
 }
 
-// splitDocuments splits YAML into its non-empty documents.
-func splitDocuments(data string) []string {
+// SplitDocuments splits YAML into its non-empty documents.
+func SplitDocuments(data string) []string {
 	var docs []string
 	for _, d := range strings.Split("\n"+data, "\n---") {
 		if d = strings.TrimSpace(d); d != "" {

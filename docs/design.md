@@ -125,7 +125,7 @@ leaves in place. A resource is excepted from one rule by the annotation
 exception` adds, removes and lists them: an exception is a decision about one resource, so `add`
 takes `--resource` whenever the Unit holds more than one, and `list` reads every exception back
 with its reason, and counts the exceptions to each rule, including the rules that have none.
-Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6). So are the packs no command group owns -- `exposure` (Services, Ingresses, Gateways), `secrets`, `metadata` and `storage` -- each installed with `cub manage guardrails <pack> install` and opted into on its own.
+Rules about every resource or every Unit rather than one group's kinds are the tool's: the `basic` group, installed with `cub manage guardrails install` (section 7.6). So are the packs no command group owns -- `exposure` (Services, Ingresses, Gateways, and Traefik's IngressRoutes), `secrets`, `metadata` and `storage` -- each installed with `cub manage guardrails <pack> install` and opted into on its own.
 
 Most rules are per-resource CEL expressions run by `vet-cel`, or another validating function such
 as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each attribute that failed
@@ -255,6 +255,14 @@ Override=External` on what a command writes into it, or the next upload removes 
 change selects, all of them or none -- a Unit is in one ChangeSet at a time -- and leaves it open,
 and a dry run refuses as the commit would.
 
+A change made in a base, a Space whose Units have variants, is made the way ConfigHub promotes
+changes: in a ChangeSet in the base, which is then closed, and named by a ChangeOrder adopting
+the ChangeSet's end Tag, to be promoted to the variants stage by stage along the ChangeWorkflow of
+the base's Component -- the one kept in the base, or the only one the Component allows. Both are
+named alike and annotated `Trigger=<space>/<slug>` with the guardrail Triggers whose findings the
+change fixes. `internal/cub/rollout.go` creates them; `netpol allow-from-refs` is the first command
+that writes this way.
+
 ### 5.4 Arguments and names
 
 - A command that writes to one Unit takes it as `<space>/<unit>`.
@@ -327,7 +335,9 @@ makes it everywhere a persona role or binding is replicated.
 
 ### 6.3 netpol
 
-Reads NetworkPolicies together with Namespaces, pod-bearing workloads and Services. The engine
+Reads NetworkPolicies together with Namespaces, pod-bearing workloads, Services, and the routes
+that send an ingress controller's traffic to Services (Ingresses, IngressClasses and Traefik's
+IngressRoutes). The engine
 matches label selectors (`matchLabels` and `matchExpressions`), scopes them by namespace, and
 combines policies additively: a pod is isolated in a direction as soon as any policy selects it,
 and allowed whatever any of them allows.
@@ -360,6 +370,58 @@ re-running adds only the missing sources. `--per-edge` writes one policy per Lin
 
 Because a Link joins Units and a Unit can hold several resources, `allow-from-links` matches the
 Link's Unit slug to a resource name, prefers the Service, and skips Units it cannot disambiguate.
+
+`allow-from-refs` derives the allows from the references between resources instead, so no Links
+have to be recorded first. It reads three kinds of reference (`--refs`):
+
+- Routes. An Ingress, or a Traefik IngressRoute, IngressRouteTCP or IngressRouteUDP, names
+  Services, and the ingress controller serving it connects to the pods each Service selects. The
+  controller is Traefik for its own routes, and for an Ingress the controller of its IngressClass;
+  its workload is the one running that controller's image, or the one `--ingress-controller` names.
+- Config. A Service address in a workload's config is a connection from the workload to the
+  Service's pods: in its containers' commands, arguments and env values, and in the ConfigMaps it
+  reads, by a volume or env, or finds by label through the Kubernetes API with a kiwigrid
+  k8s-sidecar, as Grafana's chart finds datasources. ConfigMap values are read as text, so an
+  address in a YAML document embedded in one counts. An address is `<service>.<namespace>.svc`
+  (and `.cluster.local`), or a shorter name with a scheme or a port, and counts only when ConfigHub
+  has the Service, so that a bare word is not taken for one. ConfigMaps are loaded for this command
+  alone: Grafana dashboards make them large.
+- Scrape discovery. A metrics scraper finds the pods it scrapes through the Kubernetes API, so no
+  address names them: a Prometheus-format `scrape_configs` job with `kubernetes_sd_configs`, as
+  Prometheus and VictoriaMetrics read it, or an Alloy `discovery.kubernetes` feeding a
+  `prometheus.scrape` through `discovery.relabel`s, in the scraper's config as above. Each pod,
+  endpoint or Service the job's role finds in its namespaces is given the labels discovery would
+  give it -- namespace, pod labels and annotations, container port, the Service's -- and the job's
+  `keep`, `drop` and `replace` rules are applied in order; a target that survives is scraped at the
+  port its `__address__` ends up with.
+
+The port is the pod's: the Service port the route or address names (an address's scheme implies
+80 or 443; one with neither names every port), through its `targetPort`, to the container port of
+that number or name. A ConfigMap several workloads read is a connection from each of them to every
+Service it names, which is more than some of them make.
+
+Policies add up, so an allow beside a rule admitting every source changes nothing. For each
+destination, `allow-from-refs` takes the rules admitting every source out of the policies isolating
+its ingress, adds a rule admitting the controller to the first of them, and keeps the rules that
+name sources; with no such policy, it creates `allow-<workload>-ingress`. It does not edit a policy
+that also selects a workload whose routes differ, since the edit would apply there too. Before
+writing, it models the cluster with and without the change and reports who gains and loses access
+to each destination, and which connections the source's own egress policies still block.
+
+A source is selected by its namespace's name and its own pod selector, which are the same in every
+cluster the workload is deployed to, so the variants of one upstream Unit usually take the same
+edit. When all of them do -- and the upstream too, when it is deployed itself -- and the upstream's
+policies are the same as theirs, the edit is made to the upstream; likewise a policy every variant
+would get is created once, in the upstream's Space, when the upstream's workload is in the same
+namespace with the same labels. The changes in each base are made in a ChangeSet and promoted by a
+ChangeOrder, as above, annotated with `netpol-no-allow-all-ingress` for an edit and
+`netpol-ingress-coverage` for a new policy; promoting the ChangeOrder clones the new policy Units
+into the variants. When the upstream has the change already -- an edit's result, or a policy Unit holding the
+planned policy -- nothing is written, and the report says to promote it; a policy Unit there that
+differs is brought up to date. Otherwise each variant is changed itself. Other references a policy could be derived from -- admission webhooks and
+APIServices, which the API server calls; addresses in Secrets; and the Prometheus Operator's
+ServiceMonitors and PodMonitors -- and the egress allows a source with egress policies needs, are
+not read yet.
 
 ### 6.4 workload
 
@@ -577,9 +639,9 @@ rather than adding a second copy.
   would let the analyses run where the data is; several group by a field inside the resources (the
   namespace), not by Space or Target, which such a facility would need to support.
 - **Cluster facts.** A Target records its cluster's zones, node label keys and managed
-  distribution, which `scheduling`'s spread checks use. Whether its network plugin enforces
-  NetworkPolicy at all, and which node pools and taints it has, would qualify `netpol`'s findings
-  and enable `scheduling`'s pool and taint checks.
+  distribution, which `scheduling`'s spread checks use, and whether its network plugin enforces
+  NetworkPolicy, which `netpol` reports. Which node pools and taints it has would enable
+  `scheduling`'s pool and taint checks.
 - **Resource-level dependencies.** Links join Units, so `allow-from-links` guesses which resource in
   a Unit is meant. A Link that can name a resource would remove the guess.
 - **Namespace provisioning.** Creating a new component's namespace from a template, and a mutating

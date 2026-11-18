@@ -59,7 +59,7 @@ Report the findings grouped by severity, each with its namespace/resource and me
 
 - `missing-default-deny-ingress` / `uncovered-ingress` → **netpol-fix** `default-deny <namespace>` (or **netpol-fleet** `default-deny` with no namespace, for the whole fleet).
 - `metadata-egress` → **netpol-fix**: the `netpol-except-metadata` profile (`cub manage profile apply netpol-except-metadata <space>/<unit>`; fleet-wide, **netpol-fleet** `fleet-edit --profile netpol-except-metadata`).
-- `allow-all` → **netpol-fix** (replace the empty `from`/`to` with explicit peers) — or generate them from Links via `allow-from-links`.
+- `allow-all` → **netpol-fix** (replace the empty `from`/`to` with explicit peers) — or generate them from Links via `allow-from-links`, or from the routes that reach the workload via `allow-from-refs`.
 - `ingress-egress-asymmetry` → add the missing side with **netpol-fix** `allow`.
 - `egress-blocks-dns` → the `netpol-allow-dns` profile on the policy that isolates egress (**netpol-fix**).
 - `selects-nothing` → compare the selector with the labels of the workload it was meant for, and fix whichever is wrong.
