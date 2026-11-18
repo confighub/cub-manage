@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	sigsyaml "sigs.k8s.io/yaml"
 )
 
 // PolicyEdit is a change to an existing NetworkPolicy.
@@ -301,16 +303,17 @@ func (cr *PolicyCreate) entity() *NetworkPolicyEntity {
 	}
 }
 
-// SamePolicy reports whether p is the policy the create makes: the same pod
-// selector, isolating ingress alone, with the same ingress rules.
-func SamePolicy(p *NetworkPolicyEntity, cr *PolicyCreate) bool {
-	if p == nil {
+// Matches reports whether doc, a resource as decoded from a Unit's
+// configuration, is the policy the create makes, metadata included, so that a
+// change to what the tool generates is made to the Units it made before.
+func (cr *PolicyCreate) Matches(doc map[string]any) bool {
+	var want map[string]any
+	if err := sigsyaml.Unmarshal([]byte(cr.YAML()), &want); err != nil {
 		return false
 	}
-	want := cr.entity()
-	ingress, egress := p.Isolates()
-	return ingress && !egress && CanonicalLabels(p.PodSelector.MatchLabels) == CanonicalLabels(want.PodSelector.MatchLabels) &&
-		len(p.PodSelector.MatchExpressions) == 0 && IngressKey(p) == IngressKey(want)
+	a, errA := json.Marshal(doc)
+	b, errB := json.Marshal(want)
+	return errA == nil && errB == nil && string(a) == string(b)
 }
 
 // YAML is the NetworkPolicy the create makes.

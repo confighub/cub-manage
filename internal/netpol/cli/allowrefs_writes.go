@@ -463,7 +463,7 @@ func createInUpstream(ctx context.Context, c *cubapi.Client, l *lineage, up *goc
 }
 
 // baseHasPolicy reports whether a Space has the Unit a create would make,
-// holding the policy as planned: the same pod selector and ingress rules.
+// holding the policy as planned.
 func baseHasPolicy(ctx context.Context, c *cubapi.Client, spaceSlug string, create *netpol.PolicyCreate) (bool, error) {
 	ref, err := cub.ResolveUnit(ctx, c, spaceSlug, create.Name)
 	if err != nil {
@@ -473,18 +473,16 @@ func baseHasPolicy(ctx context.Context, c *cubapi.Client, spaceSlug string, crea
 	if err != nil {
 		return false, err
 	}
-	var resources []netpol.FleetResource
 	for _, doc := range cub.SplitDocuments(data) {
 		var m map[string]any
-		if yaml.Unmarshal([]byte(doc), &m) == nil && m != nil {
-			resources = append(resources, netpol.FleetResource{Doc: m})
+		if yaml.Unmarshal([]byte(doc), &m) != nil || m == nil {
+			continue
+		}
+		if kind, name, _, ok := netpol.ResourceMeta(m); ok && kind == "NetworkPolicy" && name == create.Name {
+			return create.Matches(m), nil
 		}
 	}
-	cl := netpol.BuildFleet(resources)[""]
-	if cl == nil {
-		return false, nil
-	}
-	return netpol.SamePolicy(policiesByName(cl)[create.Name], create), nil
+	return false, nil
 }
 
 // baseRollout is the ChangeSet and ChangeOrder a base's changes are made in.

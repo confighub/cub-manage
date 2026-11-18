@@ -153,7 +153,7 @@ prometheus.remote_write "prod" {
 	}
 }
 
-func TestSamePolicy(t *testing.T) {
+func TestPolicyCreateMatches(t *testing.T) {
 	c := refsFixture(t)
 	flows, _ := RouteFlows(c, "")
 	var create *PolicyCreate
@@ -165,19 +165,19 @@ func TestSamePolicy(t *testing.T) {
 	if create == nil {
 		t.Fatal("no create for web")
 	}
-	parse := func(yaml string) *NetworkPolicyEntity {
-		var doc any
-		if err := json.Unmarshal([]byte(yaml), &doc); err != nil {
+	parse := func(s string) map[string]any {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(s), &doc); err != nil {
 			t.Fatal(err)
 		}
-		return BuildFleet([]FleetResource{{Doc: doc}})[""].NetworkPolicies[0]
+		return doc
 	}
-	same := parse(`{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-web-ingress","namespace":"web"},"spec":{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"traefik"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"traefik"}}}],"ports":[{"port":8000,"protocol":"TCP"}]}]}}`)
-	if !SamePolicy(same, create) {
-		t.Error("the policy as planned is not the same")
+	const spec = `"spec":{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Ingress"],"ingress":[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"traefik"}},"podSelector":{"matchLabels":{"app.kubernetes.io/name":"traefik"}}}],"ports":[{"port":8000,"protocol":"TCP"}]}]}`
+	if !create.Matches(parse(`{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-web-ingress","namespace":"web","annotations":{"netpol.confighub.com/managed-by":"cub manage netpol"}},` + spec + `}`)) {
+		t.Error("the policy as planned does not match")
 	}
-	fewer := parse(`{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-web-ingress","namespace":"web"},"spec":{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Ingress"],"ingress":[]}}`)
-	if SamePolicy(fewer, create) || SamePolicy(nil, create) {
-		t.Error("a policy with other rules, or none, is the same")
+	// Metadata the tool no longer writes is a difference, so a re-run brings it up to date.
+	if create.Matches(parse(`{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"allow-web-ingress","namespace":"web","labels":{"app.kubernetes.io/managed-by":"cub manage netpol"}},` + spec + `}`)) {
+		t.Error("a policy with other metadata matches")
 	}
 }

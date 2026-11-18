@@ -12,9 +12,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// managedByLabel marks the resources this tool authors, so they are
-// distinguishable from hand-written policies.
-const managedByLabel = "cub manage netpol"
+// managedByAnnotation marks the resources this tool authors, so they are
+// distinguishable from hand-written policies. It is an annotation rather than
+// a label: nothing selects on it, and a label value cannot hold spaces.
+const (
+	managedByAnnotation = "netpol.confighub.com/managed-by"
+	managedBy           = "cub manage netpol"
+)
 
 // DefaultDenyYAML renders a default-deny NetworkPolicy for a namespace. By
 // default it denies all ingress (podSelector {} + policyTypes [Ingress]); with
@@ -132,9 +136,8 @@ func networkPolicyDoc(name, namespace string, spec map[string]any) map[string]an
 		"metadata": map[string]any{
 			"name":      name,
 			"namespace": namespace,
-			"labels": map[string]any{
-				"app.kubernetes.io/name":       name,
-				"app.kubernetes.io/managed-by": managedByLabel,
+			"annotations": map[string]any{
+				managedByAnnotation: managedBy,
 			},
 		},
 		"spec": spec,
