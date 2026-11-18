@@ -80,6 +80,9 @@ cub manage guardrails status -o table
 cub manage guardrails exception add shop-prod/batch --rule workload-pdb-coverage \
     --reason "singleton by design" --commit --change-desc "batch runs one replica"
 cub manage guardrails exception list -o table                # what is excepted, and why
+cub manage guardrails exception add-temporary --rule workload-runs-nonroot \
+    --reason "images rebuilt in Q1" --commit --change-desc "enforce now, fix later"
+cub manage guardrails exception list --temporary -o table    # the failures still to fix
 cub manage guardrails status --by-rule -o table              # each rule: Created, Audited, Enforced, Disabled
 cub manage guardrails status --framework cis-v1.12 -o table  # each CIS control: its checks and how far they have got
 cub manage guardrails update workload-runs-nonroot --priority High --enforced-by 2026-12-31 --commit
