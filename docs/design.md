@@ -633,9 +633,8 @@ rather than adding a second copy.
 - **Spaces without a Target.** A rule about a set reads the Units released to the Space's Target,
   so a Unit with no Target passes it. Selecting the Space's own Units when it has no Target would
   check those too.
-- **More rules about sets.** `pdb-allows-eviction`, `autoscale-target`, `servicemonitor-selects`,
-  RBAC role existence, `service-account-token`, references between resources and uniqueness per
-  cluster can read other resources the same way.
+- **More rules about sets.** Uniqueness of Namespaces and CRDs per cluster, and resources nothing
+  references, such as an unbound ServiceAccount, can read other resources the same way.
 - **Server-side analysis.** The engines run in the client. A map-reduce over Units on the server
   would let the analyses run where the data is; several group by a field inside the resources (the
   namespace), not by Space or Target, which such a facility would need to support.

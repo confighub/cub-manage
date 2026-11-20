@@ -32,14 +32,29 @@ var exposesMetrics = "(r.?metadata.?annotations.orValue(null) != null && " +
 	"(r.?spec.?ports.orValue(null) != null ? r.spec.ports : []).exists(p, " +
 	"p.?name.orValue('').lowerAscii() in ['" + strings.Join(observability.MetricsPortNames(), "', '") + "']))"
 
-// monitors: the ServiceMonitor m selects the Service r: its namespaceSelector names r's
-// namespace -- any, a list, or by default its own -- and its selector selects r's labels.
-// A missing selector selects every Service, as the analysis reads it.
-var monitors = "(m.?spec.?namespaceSelector.?any.orValue(false) == true || " +
-	"(size(m.?spec.?namespaceSelector.?matchNames.orValue([])) > 0 ? " +
-	celrule.NamespaceOf("r") + " in m.spec.namespaceSelector.matchNames : " +
-	celrule.NamespaceOf("m") + " == " + celrule.NamespaceOf("r") + ")) && " +
-	"selects(m.?spec.?selector.orValue(null) != null ? m.spec.selector : {}, r.?metadata.?labels.orValue({}))"
+// monitorSelects is whether the ServiceMonitor m selects the Service s: its namespaceSelector
+// names s's namespace -- any, a list, or by default its own -- and its selector selects s's
+// labels. A missing selector selects every Service, as the analysis reads it.
+func monitorSelects(m, s string) string {
+	return "(" + m + ".?spec.?namespaceSelector.?any.orValue(false) == true || " +
+		"(size(" + m + ".?spec.?namespaceSelector.?matchNames.orValue([])) > 0 ? " +
+		celrule.NamespaceOf(s) + " in " + m + ".spec.namespaceSelector.matchNames : " +
+		celrule.NamespaceOf(m) + " == " + celrule.NamespaceOf(s) + ")) && " +
+		"selects(" + m + ".?spec.?selector.orValue(null) != null ? " + m + ".spec.selector : {}, " + s + ".?metadata.?labels.orValue({}))"
+}
+
+// monitors: the ServiceMonitor m selects the Service r.
+var monitors = monitorSelects("m", "r")
+
+// otherServices are the Services on a ServiceMonitor's cluster, which servicemonitor-selects reads.
+var otherServices = guardrails.OtherData{Key: "services", ResourceTypes: []string{"v1/Service"}}
+
+// celServiceMonitorSelects fails a ServiceMonitor that selects no Service on its cluster, so it
+// scrapes nothing: most often a label renamed or misspelled. A Unit with no Target passes.
+var celServiceMonitorSelects = celrule.When(
+	celrule.OnACluster+" && !"+celrule.Other(otherServices.Key)+".exists(s, "+monitorSelects("r", "s")+")",
+	"["+celrule.Failure("'spec.selector'", "r.?spec.?selector",
+		"'the ServiceMonitor selects no Service on the cluster, so it scrapes nothing'")+"]")
 
 // celServiceMonitorCoverage fails a metrics Service that no ServiceMonitor on its
 // cluster selects. A Unit with no Target is on no known cluster, so it passes.
@@ -58,6 +73,11 @@ var Pack = guardrails.Pack{
 			Fix:           "cub manage observability ensure-servicemonitor",
 			ResourceTypes: []string{"v1/Service"}, OtherData: []guardrails.OtherData{otherMonitors},
 			Failures: celServiceMonitorCoverage},
+		{Control: "CH-1302", Name: "servicemonitor-selects", Rule: "servicemonitor-selects", DisplayName: "ServiceMonitors select a Service",
+			Description: "Warns on a ServiceMonitor whose selector selects no Service on its cluster, in its namespace or those its namespaceSelector names, so it scrapes nothing: most often a label renamed or misspelled. Not checked for a Unit with no Target. Fix: correct the selector, or except a ServiceMonitor for Services made outside ConfigHub.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow,
+			ResourceTypes: otherMonitors.ResourceTypes, OtherData: []guardrails.OtherData{otherServices},
+			Failures: celServiceMonitorSelects, Corresponds: []string{"KL:dangling-servicemonitor"}},
 	},
 }
 
@@ -72,6 +92,7 @@ Space and enforced in each Space that opts into the group:
 
   observability-servicemonitor-coverage   a Service exposing metrics has a
                                           ServiceMonitor that scrapes it
+  servicemonitor-selects                  a ServiceMonitor selects some Service
 
 The coverage rule reads the ServiceMonitors on the Service's cluster: those of
 the Units released to the same Target as the Space, which each Space selects

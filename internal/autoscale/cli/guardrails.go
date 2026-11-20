@@ -49,6 +49,7 @@ var Pack = guardrails.Pack{
 				"["+celrule.Failure(celrule.Lit("spec.minReplicas"), "r.?spec.?minReplicas",
 					"'the autoscaler can scale down to ' + (has(r.spec) && has(r.spec.minReplicas) ? string(r.spec.minReplicas) : '1, as minReplicas is unset,') + ' replica'")+"]"),
 			Corresponds: []string{"SC:horizontalpodautoscaler-replicas", "KL:hpa-minimum-three-replicas"}},
+		autoscaleTarget,
 	},
 }
 
@@ -64,6 +65,9 @@ policy Space and enforced in each Space that opts into the group:
   autoscale-not-pinned    an HPA/ScaledObject must not have min == max (it would
                           be unable to scale) — a per-resource vet-cel check
   autoscale-min-replicas  an HPA keeps at least 2 replicas
+  autoscale-target        an autoscaler's target is on its cluster, does not set
+                          replicas, and requests what its utilization metrics
+                          measure
 
 The rules are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote it to blocking with:

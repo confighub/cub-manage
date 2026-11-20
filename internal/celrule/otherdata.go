@@ -56,3 +56,72 @@ func PodLabelsPath() string {
 	slices.Sort(entries)
 	return "{" + strings.Join(entries, ", ") + "}[" + resourceType + "]"
 }
+
+// PodSpecOf is the pod spec of the workload x, a CEL expression, wherever its kind keeps it, such
+// as a CronJob's spec.jobTemplate.spec.template.spec: an empty map when it has none.
+func PodSpecOf(x string) string {
+	byPath := map[string][]string{}
+	for _, t := range k8skit.PodLabelsResourceTypes() {
+		paths := k8skit.PodSpecPaths(t)
+		if len(paths) == 0 {
+			continue
+		}
+		byPath[paths[0]] = append(byPath[paths[0]], Lit(string(t)))
+	}
+	paths := make([]string, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	expr := "{}"
+	for _, path := range slices.Backward(paths) {
+		types := byPath[path]
+		slices.Sort(types)
+		expr = "(" + x + ".apiVersion + '/' + " + x + ".kind in [" + strings.Join(types, ", ") + "] ? " +
+			x + ".?" + strings.ReplaceAll(path, ".", ".?") + ".orValue({}) : " + expr + ")"
+	}
+	return expr
+}
+
+// AutoscalerTypes are the autoscalers that scale a workload: HorizontalPodAutoscalers and KEDA
+// ScaledObjects.
+var AutoscalerTypes = []string{
+	"autoscaling/v1/HorizontalPodAutoscaler", "autoscaling/v2/HorizontalPodAutoscaler", "keda.sh/v1alpha1/ScaledObject",
+}
+
+// Scales is whether the autoscaler a scales the workload w: its scaleTargetRef names w's kind
+// and name in its namespace. A ScaledObject's target kind defaults to Deployment.
+func Scales(a, w string) string {
+	kind := "(" + a + ".kind == 'ScaledObject' ? " + a + ".?spec.?scaleTargetRef.?kind.orValue('Deployment') : " +
+		a + ".?spec.?scaleTargetRef.?kind.orValue(''))"
+	return "(" + NamespaceOf(a) + " == " + NamespaceOf(w) + " && " + a + ".?spec.?scaleTargetRef.?name.orValue('') == " +
+		w + ".metadata.name && " + kind + " == " + w + ".kind)"
+}
+
+// MinReplicas is the fewest replicas the autoscaler a scales to: an HPA's minReplicas, 1 when
+// unset, or a ScaledObject's minReplicaCount, 0 when unset.
+func MinReplicas(a string) string {
+	return "(" + a + ".kind == 'ScaledObject' ? int(" + a + ".?spec.?minReplicaCount.orValue(0)) : int(" +
+		a + ".?spec.?minReplicas.orValue(1)))"
+}
+
+// PodSpecPath is a CEL expression for the path of r's pod spec, wherever its kind keeps it, such
+// as spec.jobTemplate.spec.template.spec for a CronJob.
+func PodSpecPath() string {
+	entries := []string{}
+	for _, t := range k8skit.PodLabelsResourceTypes() {
+		if paths := k8skit.PodSpecPaths(t); len(paths) > 0 {
+			entries = append(entries, Lit(string(t))+": "+Lit(paths[0]))
+		}
+	}
+	slices.Sort(entries)
+	return "{" + strings.Join(entries, ", ") + "}[" + resourceType + "]"
+}
+
+// ServiceAccountOf is the ServiceAccount the pods of the workload x run as: its pod spec's
+// serviceAccountName, the deprecated serviceAccount, or default.
+func ServiceAccountOf(x string) string {
+	spec := PodSpecOf(x)
+	return "(" + spec + ".?serviceAccountName.orValue('') != '' ? " + spec + ".serviceAccountName : " +
+		spec + ".?serviceAccount.orValue('') != '' ? " + spec + ".serviceAccount : 'default')"
+}

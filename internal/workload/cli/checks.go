@@ -144,11 +144,6 @@ var (
 	celPDBUnhealthyEviction = failIf("!(has(r.spec) && has(r.spec.unhealthyPodEvictionPolicy) && r.spec.unhealthyPodEvictionPolicy == 'AlwaysAllow')",
 		celrule.Lit("spec.unhealthyPodEvictionPolicy"), "r.spec.?unhealthyPodEvictionPolicy",
 		"'the PodDisruptionBudget counts unhealthy pods, so they can block draining a node'")
-	celReplicas = failIf(
-		"has(r.spec) && has(r.spec.replicas) && params['replicas.environments'].split(',').exists(e, e.trim().lowerAscii() == "+spaceLabels+"[?'Environment'].orValue('').lowerAscii()) && "+
-			"r.spec.replicas < int(params['replicas.min'])",
-		celrule.Lit("spec.replicas"), celrule.Some("r.spec.replicas"),
-		"'the workload runs ' + string(r.spec.replicas) + ' replicas in ' + "+spaceLabels+"['Environment'] + ', fewer than ' + params['replicas.min']")
 	celRollingUpdate = failIf("has(r.spec) && has(r.spec.strategy) && has(r.spec.strategy.type) && r.spec.strategy.type != 'RollingUpdate'",
 		celrule.Lit("spec.strategy.type"), celrule.Some("r.spec.strategy.type"), "'the Deployment replaces all its pods at once rather than rolling'")
 	celNoBarePods = "[" + celrule.Failure(celrule.Lit("kind"), celrule.Some("r.kind"), "'a bare Pod is not replaced when it or its node fails'") + "]"
@@ -209,6 +204,11 @@ func withParams(c guardrails.Check, params ...guardrails.Param) guardrails.Check
 	return c
 }
 
+func withOtherData(c guardrails.Check, otherData ...guardrails.OtherData) guardrails.Check {
+	c.OtherData = otherData
+	return c
+}
+
 func appliedToTarget(c guardrails.Check) guardrails.Check {
 	c.AppliedTo = guardrails.AppliedToTarget
 	return c
@@ -228,6 +228,10 @@ var moreChecks = []guardrails.Check{
 	withFix(celCheck("CH-0325", "drop-net-raw", guardrails.PriorityMedium, "Containers drop NET_RAW",
 		"Warns on a container that does not drop the NET_RAW capability, or ALL, with which it can craft packets and spoof traffic on the node's network. Fix: `cub manage workload harden <space>/<unit>` drops ALL.",
 		celDropNetRaw, celrule.Controllers, "KS:C-0199", "KL:drop-net-raw-capability", "KY:require-drop-cap-net-raw"), hardenFix),
+	withOtherData(celCheck("CH-0327", "service-account-token", guardrails.PriorityMedium, "Pods mount a ServiceAccount token only to use it",
+		"Warns on a pod that mounts its ServiceAccount's token, by its own automountServiceAccountToken or its ServiceAccount's, when no RoleBinding or ClusterRoleBinding on its cluster binds that ServiceAccount: the pod has a credential it does not use, for anyone who gets into it. Not checked for a Unit with no Target. Fix: set automountServiceAccountToken: false on the pod or the ServiceAccount.",
+		celServiceAccountToken, celrule.WorkloadTypes(), "KS:C-0034", "GK:automount-serviceaccount-token", "KY:restrict-sa-automount-sa-token"),
+		otherServiceAccounts, otherBindings),
 	celCheck("CH-0326", "non-root-groups", guardrails.PriorityMedium, "Pods do not run as group 0",
 		"Warns on a pod or container that sets runAsGroup, fsGroup or supplementalGroups to 0, the root group, which owns files root owns. Unset passes. Fix: use a group other than 0; `cub manage workload harden <space>/<unit>` sets 3000 and 2000 where unset.",
 		celNonRootGroups, celrule.Controllers, "KY:require-non-root-groups", "GK:users", "GK:fsgroup"),
@@ -267,14 +271,19 @@ var moreChecks = []guardrails.Check{
 	optionalCheck(celCheck("CH-0365", "liveness-probe", guardrails.PriorityLow, "Containers have a liveness probe",
 		"Warns on a container with no liveness probe, so one that hangs is not restarted. Optional: a bad liveness probe does more harm than none. Fix: `cub manage workload set-probes <space>/<unit>`.",
 		celLivenessProbe, celrule.Controllers, "KS:C-0056", "KL:no-liveness-probe")),
+	withOtherData(celCheck("CH-0366", "pdb-allows-eviction", guardrails.PriorityHigh, "PodDisruptionBudgets let a pod go",
+		"Warns on a PodDisruptionBudget whose maxUnavailable is 0, or whose minAvailable, a number or a percentage, keeps every pod it selects on its cluster, counting an autoscaled workload at its autoscaler's minimum: no pod can be evicted, so a node drain waits forever. A budget selecting a DaemonSet's, Job's or CronJob's pods is not checked against minAvailable, nor one in a Unit with no Target. Fix: lower minAvailable, or set maxUnavailable to 1.",
+		celPDBAllowsEviction, pdbTypes, "KL:pdb-max-unavailable", "KL:pdb-min-available", "KY:pdb-maxunavailable"),
+		otherWorkloads, otherAutoscalers),
 	celCheck("CH-0367", "pdb-unhealthy-eviction", guardrails.PriorityLow, "PodDisruptionBudgets let unhealthy pods go",
 		"Warns on a PodDisruptionBudget without unhealthyPodEvictionPolicy: AlwaysAllow, so pods that are not ready count against it and can stop a node from draining. Fix: set unhealthyPodEvictionPolicy: AlwaysAllow.",
 		celPDBUnhealthyEviction, pdbTypes, "KL:pdb-unhealthy-pod-eviction-policy"),
-	withParams(celCheck("CH-0368", "replicas", guardrails.PriorityMedium, "Workloads run enough replicas where it matters",
-		"Warns on a Deployment or StatefulSet that sets replicas below replicas.min in a Space whose Environment label is one of replicas.environments, so one pod's loss is an outage. A workload that sets no replicas is taken to be scaled by an autoscaler, and passes. Fix: raise replicas, or add an autoscaler.",
+	withOtherData(withParams(celCheck("CH-0368", "replicas", guardrails.PriorityMedium, "Workloads run enough replicas where it matters",
+		"Warns on a Deployment or StatefulSet in a Space whose Environment label is one of replicas.environments that runs fewer than replicas.min replicas, 1 when it sets none, and that no autoscaler on its cluster scales, so one pod's loss is an outage. For a Unit with no Target, a workload setting no replicas is taken to be autoscaled. Fix: raise replicas, or add an autoscaler.",
 		celReplicas, scaledTypes, "SC:deployment-replicas", "KL:minimum-three-replicas", "KY:require-deployments-have-multiple-replicas"),
 		guardrails.Param{Name: "min", Description: "the fewest replicas", Default: "2"},
 		guardrails.Param{Name: "environments", Description: "the Environment label values, comma-separated, where the minimum applies", Default: "prod"}),
+		otherAutoscalers),
 	celCheck("CH-0369", "rolling-update", guardrails.PriorityLow, "Deployments roll their updates",
 		"Warns on a Deployment whose strategy is Recreate, which stops every pod before starting the new ones. Fix: use RollingUpdate, or except a workload that cannot run two versions at once.",
 		celRollingUpdate, []string{"apps/v1/Deployment"}, "SC:deployment-strategy", "KL:no-rolling-update-strategy"),

@@ -9,7 +9,11 @@
 
 package rbac
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // AccessQuery is a resource-access question: "who can VERB RESOURCE [in
 // NAMESPACE] [named NAME]?".
@@ -188,6 +192,49 @@ var builtinClusterRoles = map[string]bool{
 	"admin":         true,
 	"edit":          true,
 	"view":          true,
+}
+
+// builtinRoles are the Roles, by namespace, that the API server creates in every cluster, as its
+// bootstrap RBAC policy defines them, such as the one an extension API server is bound to in
+// order to read the client CA.
+var builtinRoles = map[string]map[string]bool{
+	"kube-system": {
+		"extension-apiserver-authentication-reader":      true,
+		"system::leader-locking-kube-controller-manager": true,
+		"system::leader-locking-kube-scheduler":          true,
+		"system:controller:bootstrap-signer":             true,
+		"system:controller:cloud-provider":               true,
+		"system:controller:token-cleaner":                true,
+	},
+	"kube-public": {
+		"system:controller:bootstrap-signer": true,
+	},
+}
+
+// BuiltinRoleNames are the Roles the API server creates in the namespace, sorted.
+func BuiltinRoleNames(namespace string) []string {
+	return slices.Sorted(maps.Keys(builtinRoles[namespace]))
+}
+
+// BuiltinRoleNamespaces are the namespaces in which the API server creates Roles, sorted.
+func BuiltinRoleNamespaces() []string {
+	return slices.Sorted(maps.Keys(builtinRoles))
+}
+
+// IsBuiltinRole reports whether a binding's roleRef, of kind Role or ClusterRole, names a role
+// every cluster has: a built-in or system: ClusterRole, or a Role the API server creates in the
+// binding's namespace.
+func IsBuiltinRole(kind, namespace, name string) bool {
+	if kind == "ClusterRole" {
+		return IsBuiltinRoleName(name)
+	}
+	return builtinRoles[namespace][name]
+}
+
+// BuiltinClusterRoleNames are the ClusterRoles Kubernetes ships in every cluster, sorted, but
+// for the system: ones, which IsBuiltinRoleName also counts.
+func BuiltinClusterRoleNames() []string {
+	return slices.Sorted(maps.Keys(builtinClusterRoles))
 }
 
 // IsBuiltinRoleName reports whether name is a built-in ClusterRole or a

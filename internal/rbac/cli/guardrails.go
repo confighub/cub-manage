@@ -9,6 +9,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
+	"github.com/confighub/cub-manage/internal/rbac"
 )
 
 // The checks' failures, evaluated on each resource of the types their rules
@@ -83,6 +85,38 @@ var (
 		"'rule ' + string(i) + ' can create pods, or workloads that create them, and so run as any ServiceAccount of the namespace'")
 )
 
+// otherRoles are the Roles and ClusterRoles on a binding's cluster, which
+// rbac-binding-role-exists reads.
+var otherRoles = guardrails.OtherData{Key: "roles", ResourceTypes: roleTypes}
+
+// celBindingRoleExists fails a binding whose roleRef names no role on its cluster: a Role in the
+// binding's namespace, or a ClusterRole. The roles the API server creates in every cluster count
+// without a manifest. A Unit with no Target is on no known cluster, so it passes.
+var celBindingRoleExists = func() string {
+	builtin := make([]string, 0)
+	for _, name := range rbac.BuiltinClusterRoleNames() {
+		builtin = append(builtin, celrule.Lit(name))
+	}
+	builtinRoles := []string{}
+	for _, namespace := range rbac.BuiltinRoleNamespaces() {
+		names := []string{}
+		for _, name := range rbac.BuiltinRoleNames(namespace) {
+			names = append(names, celrule.Lit(name))
+		}
+		builtinRoles = append(builtinRoles, celrule.Lit(namespace)+": ["+strings.Join(names, ", ")+"]")
+	}
+	roleExists := "(r.roleRef.name in {" + strings.Join(builtinRoles, ", ") + "}[?" + celrule.NamespaceOf("r") + "].orValue([]) || " +
+		celrule.Other(otherRoles.Key) + ".exists(o, o.kind == 'Role' && " + celrule.NamespaceOf("o") + " == " +
+		celrule.NamespaceOf("r") + " && o.metadata.name == r.roleRef.name))"
+	clusterRoleExists := "(r.roleRef.name in [" + strings.Join(builtin, ", ") + "] || r.roleRef.name.startsWith('system:') || " +
+		celrule.Other(otherRoles.Key) + ".exists(o, o.kind == 'ClusterRole' && o.metadata.name == r.roleRef.name))"
+	return celrule.When(celrule.OnACluster+" && r.?roleRef.?name.orValue('') != '' && !(r.roleRef.?kind.orValue('') == 'ClusterRole' ? "+
+		clusterRoleExists+" : "+roleExists+")",
+		"["+celrule.Failure("'roleRef.name'", celrule.Some("r.roleRef.name"),
+			"'no ' + r.roleRef.?kind.orValue('Role') + ' ' + r.roleRef.name + (r.roleRef.?kind.orValue('') == 'ClusterRole' ? '' : ' in namespace ' + "+
+				celrule.NamespaceOf("r")+") + ' on the cluster, so the binding grants nothing'")+"]")
+}()
+
 func rbacCheck(control, name, priority, displayName, description, failures string, types []string, corresponds ...string) guardrails.Check {
 	return guardrails.Check{Control: control, Name: name, Rule: name, DisplayName: displayName, Description: description,
 		Engine: guardrails.EngineCEL, Priority: priority, ResourceTypes: types, Failures: failures, Corresponds: corresponds}
@@ -130,6 +164,10 @@ var Pack = guardrails.Pack{
 		optional(rbacCheck("CH-0410", "rbac-pod-create", guardrails.PriorityLow, "No creating pods",
 			"Warns on a rule that can create pods or the workloads that create them, which lets its holder run as any ServiceAccount of the namespace. Optional: deployment controllers need it. Fix: except the roles that need it.",
 			celPodCreate, roleTypes, "KL:access-to-create-pods", "CIS:5.1.4", "KS:C-0188")),
+		{Control: "CH-0411", Name: "rbac-binding-role-exists", Rule: "rbac-binding-role-exists", DisplayName: "Bindings name a role on the cluster",
+			Description: "Warns on a RoleBinding or ClusterRoleBinding whose roleRef names no Role in its namespace, or no ClusterRole, on its cluster, so it grants nothing, often after a role was renamed. The ClusterRoles Kubernetes ships, cluster-admin, admin, edit, view and the system: ones, are taken to exist. Not checked for a Unit with no Target. Fix: correct the roleRef, or add the role.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, ResourceTypes: bindingTypes, Failures: celBindingRoleExists,
+			OtherData: []guardrails.OtherData{otherRoles}},
 		rbacCheck("CH-0412", "rbac-default-service-account-unbound", guardrails.PriorityMedium, "Default ServiceAccounts are not bound",
 			"Warns on a binding granting a role to a namespace's default ServiceAccount, which every pod naming no ServiceAccount runs as. Fix: create a ServiceAccount for the workload and bind that.",
 			celDefaultSAUnbound, bindingTypes, "CIS:5.1.5", "KS:C-0189"),
@@ -155,6 +193,7 @@ policy Space and enforced in each Space that opts into the group:
   rbac-csr-approval                     no approving certificate signing requests
   rbac-endpoints-edit                   no writing Endpoints or EndpointSlices
   rbac-secrets-access                   no reading Secrets
+  rbac-binding-role-exists              a binding's role is on the cluster
   rbac-default-service-account-unbound  no roles bound to a default ServiceAccount
   rbac-pod-create                       no creating pods (optional: --check)
 

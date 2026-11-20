@@ -93,11 +93,17 @@ func TestAnalyze_OrphanedBindingsNotBuiltins(t *testing.T) {
 		res("c1", roleBinding("orphan", "monitoring", RoleRef{Kind: "Role", Name: "grafana-viewer"}, []any{user("alice@example.com")})),
 		res("c1", clusterRoleBinding("ok-builtin", "view", []any{group("devs")})),
 		res("c1", clusterRoleBinding("ok-system", "system:metrics-reader", []any{group("devs")})),
+		// A Role the API server creates in kube-system, which an extension API server is bound to.
+		res("c1", roleBinding("ok-builtin-role", "kube-system", RoleRef{Kind: "Role", Name: "extension-apiserver-authentication-reader"}, []any{group("devs")})),
+		// The same name elsewhere, and a built-in ClusterRole's name as a Role, are not built in.
+		res("c1", roleBinding("orphan-elsewhere", "monitoring", RoleRef{Kind: "Role", Name: "extension-apiserver-authentication-reader"}, []any{group("devs")})),
+		res("c1", roleBinding("orphan-admin", "monitoring", RoleRef{Kind: "Role", Name: "admin"}, []any{group("devs")})),
 	}))
 	orphans := byAnalyzer(findings, "orphaned-binding")
-	if len(orphans) != 1 {
-		t.Fatalf("got %d orphan findings, want 1", len(orphans))
+	if len(orphans) != 3 {
+		t.Fatalf("got %d orphan findings, want 3", len(orphans))
 	}
+	orphans = slices.DeleteFunc(orphans, func(f Finding) bool { return f.ResourceName != "orphan" })
 	if orphans[0].ResourceName != "orphan" {
 		t.Errorf("resourceName = %q, want orphan", orphans[0].ResourceName)
 	}

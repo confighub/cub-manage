@@ -16,6 +16,9 @@ Install and inspect a small pack of RBAC validation policies, defined once in a 
 | `rbac-no-wildcards` | wildcard verbs / resources / apiGroups in a Role/ClusterRole |
 | `rbac-no-privilege-escalation` | `escalate` / `bind` / `impersonate` verbs |
 | `rbac-no-cluster-admin-binding` | ClusterRoleBindings to `cluster-admin` |
+| `rbac-binding-role-exists` | a binding whose role is not on its cluster: no such Role in its namespace, or ClusterRole (the built-in ones count). It reads the roles of the Units released to the same Target; a Unit with no Target passes |
+
+These are some of the pack's rules; `cub manage rbac guardrails --help` lists them all.
 
 Triggers are created with **Warn=true** → they produce advisory **ValidationWarnings**, never blocking **ValidationErrors**. Installing on an existing fleet never blocks anyone. Promote one to blocking later (a single change, fleet-wide):
 
