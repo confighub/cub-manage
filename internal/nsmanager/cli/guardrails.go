@@ -57,6 +57,8 @@ var Pack = guardrails.Pack{
 			ResourceTypes: []string{"v1/Namespace"}, Failures: celNotPrivileged,
 			Fix:         "cub manage namespace pod-security set --namespace <ns>",
 			Corresponds: []string{"CIS:5.2.1"}},
+		namespaceResourceQuota,
+		namespaceLimitRange,
 	},
 }
 
@@ -93,6 +95,8 @@ once in a policy Space and enforced in each Space that opts into the group:
                                    label, which 'pod-security set' copies from its
                                    namespace
   namespace-not-privileged         a Namespace's enforce level is not privileged
+  namespace-resource-quota         a Namespace has a ResourceQuota (optional: --check)
+  namespace-limit-range            a Namespace has a LimitRange (optional: --check)
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking once its warnings are worked down with:

@@ -46,7 +46,7 @@ var celServedAPI = func() string {
 var basicPack = guardrails.Pack{
 	Group:    "basic",
 	RuleInfo: []guardrails.RuleInfo{correctnessRule},
-	Checks: slices.Concat(correctnessChecks, []guardrails.Check{
+	Checks: slices.Concat(correctnessChecks, referenceChecks, []guardrails.Check{
 		{Control: "CH-0101", Name: "validate", Rule: "validate", DisplayName: "Resources match their schemas",
 			Description: "Fails a resource that does not pass its Kubernetes or CRD schema, including the KEDA ScaledObjects `cub manage autoscale convert-keda` writes. Fix: correct the fields the result names.",
 			Engine:      guardrails.EngineFunction, Priority: guardrails.PriorityHigh, Function: "vet-schemas"},

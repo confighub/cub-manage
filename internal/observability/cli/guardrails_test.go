@@ -45,3 +45,18 @@ func TestServiceMonitorCoverage(t *testing.T) {
 func TestUnrelatedResourcesPass(t *testing.T) {
 	celruletest.UnrelatedResourcesPass(t, Pack)
 }
+
+func TestServiceMonitorSelects(t *testing.T) {
+	check := celruletest.Check(t, Pack, "servicemonitor-selects")
+	onCluster := map[string]any{"TargetID": "4d6b2a1e-0000-4000-8000-000000000001"}
+	monitor := "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: api\n  namespace: monitoring\n" +
+		"spec:\n  namespaceSelector:\n    matchNames: [shop]\n  selector:\n    matchLabels:\n      app: api\n"
+	service := func(namespace, app string) string {
+		return "apiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: " + namespace + "\n  labels:\n    app: " + app + "\n"
+	}
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, onCluster, nil, celruletest.Other{"services": {service("shop", "api")}}, check, monitor))
+	result := celruletest.EvalCheckOther(t, onCluster, nil, celruletest.Other{"services": {service("monitoring", "api"), service("shop", "web")}}, check, monitor)
+	celruletest.Expect(t, result, "spec.selector")
+	celruletest.ExpectResource(t, result, "monitoring/api", "monitoring.coreos.com/v1/ServiceMonitor")
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, map[string]any{}, nil, nil, check, monitor))
+}

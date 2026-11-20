@@ -158,13 +158,14 @@ by area ('guardrails status --by-rule' lists them with where each stands):
   Hardening     workload-runs-nonroot, workload-readonly-root-filesystem,
                 no-runtime-socket, no-sensitive-host-paths, readonly-host-paths,
                 drop-net-raw, non-root-groups, dedicated-service-account,
-                no-ssh-port, no-cloud-credential-mounts and no-sudo-entrypoint
+                service-account-token, no-ssh-port, no-cloud-credential-mounts and no-sudo-entrypoint
                 (Kubescape C-0020, C-0062), high-uid (optional)
   Resources     workload-has-limits, requests, emptydir-size-limit,
                 ephemeral-storage and memory-request-equals-limit (optional)
   Reliability   workload-pdb-coverage, workload-termination-message-policy,
                 workload-database-statefulset, readiness-probe, probes-differ,
-                pdb-unhealthy-eviction, replicas, rolling-update, no-bare-pods,
+                pdb-allows-eviction, pdb-unhealthy-eviction, replicas,
+                rolling-update, no-bare-pods,
                 job-cleanup, liveness-probe and priority-class (optional)
   Images        workload-explicit-image-tag, allowed-registries,
                 deprecated-registries, known-vulnerable-images (Kubescape C-0081,
@@ -175,11 +176,12 @@ replicas.min and replicas.environments (default 2, in Spaces labeled
 Environment: prod), priority-class.allowed, and allowed-registries.registries,
 which is installed once given.
 
-All but workload-pdb-coverage check one resource. workload-pdb-coverage reads the
-PodDisruptionBudgets on the workload's cluster: those of the Units released to the
-same Target as the Space, which each Space selects for itself. A change to a
-budget re-runs the rule on the Units that read it. A Unit with no Target is on no
-known cluster, so it passes.
+Most check one resource. workload-pdb-coverage, pdb-allows-eviction, replicas and
+service-account-token also read other resources on the workload's cluster -- its
+PodDisruptionBudgets, workloads, autoscalers, ServiceAccounts and bindings: those
+of the Units released to the same Target as the Space, which each Space selects
+for itself. A change to one of them re-runs the rule on the Units that read it.
+A Unit with no Target is on no known cluster, so what they read there passes.
 
 The Pod Security rules run vet-pod-security-standard on Pods and every resource
 with a pod template. A check is named by its Pod Security Standards ID in lowercase

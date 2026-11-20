@@ -12,13 +12,14 @@ Turn the autoscaling anti-patterns into **enforcement** — advisory ValidationW
 - **`cub manage autoscale guardrails install`** — creates the `common` Space and a `Warn=true` Trigger, labeled `Pack: autoscale`, then adds the `autoscale` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
   - `autoscale-not-pinned` (`vet-cel`) — an HPA/ScaledObject must not have `min == max`.
   - `autoscale-min-replicas` (`vet-cel`) — an HPA keeps at least 2 replicas (`minReplicas` unset is 1).
+  - `autoscale-target` (`vet-cel`) — the scale target is on the cluster, does not set `replicas` (each apply would reset the scale), and its containers request the CPU or memory a utilization metric measures. It reads the workloads of the Units released to the same Target; a Unit with no Target passes.
 - **`cub manage guardrails install`** — the tool-level `basic` group, opted into on its own. Among its rules:
   - `validate` (`vet-schemas`) — a resource must pass Kubernetes/CRD schema validation. This is the **post-convert check** for `convert-keda`: a committed ScaledObject fires the Mutation Trigger and is validated against `keda.sh`'s schema.
 - **`cub manage guardrails status`** — lists Units carrying autoscaling ValidationWarnings or ValidationErrors.
 
 ## Why this matters
 
-Both rules are plain **per-resource** checks — a single resource answers each. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them — those are reported with the reason.
+`autoscale-not-pinned` and `autoscale-min-replicas` check one resource each; `autoscale-target` also reads the workloads on the autoscaler's cluster, and re-runs when one of them changes. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them — those are reported with the reason.
 
 ## When to use
 

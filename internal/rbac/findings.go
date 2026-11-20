@@ -183,7 +183,7 @@ func orphanedBindingFindings(cluster *ClusterRbac) []Finding {
 		if ResolveRoleRef(binding, cluster) != nil {
 			continue
 		}
-		if IsBuiltinRoleName(binding.RoleRef.Name) {
+		if IsBuiltinRole(binding.RoleRef.Kind, binding.Namespace, binding.RoleRef.Name) {
 			continue
 		}
 		out = append(out, newFinding("orphaned-binding", api.ScoreMedium, binding.Origin, binding.Kind, binding.Name,

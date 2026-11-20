@@ -84,6 +84,16 @@ resource or every Unit rather than one group's kinds:
                            port names and references, volume references,
                            required choices, ConfigMap size, CronJobs, and
                            deprecated fields, each a check of its own
+  service-account-exists   A pod's ServiceAccount is on its cluster
+  configmap-exists         The ConfigMaps a pod reads are on its cluster
+  claim-exists             The PersistentVolumeClaims a pod mounts are on its cluster
+  ingress-backend-exists   An Ingress backend's Service and port are on its cluster
+  statefulset-service-exists
+                           A StatefulSet's governing Service is on its cluster
+  service-selects-pods     A Service's selector selects some workload's pods
+
+The last six read the cluster's other resources: those of the Units released
+to the same Target as the Space. A Unit with no Target passes them.
 
 'status' lists the Units any Trigger has marked, whichever group it belongs to.
 'status --by-rule' reports where each rule stands instead -- Created, Audited,

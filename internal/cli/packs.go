@@ -130,6 +130,7 @@ var exposurePack = guardrails.Pack{
 				failIf("!(has(r.spec) && has(r.spec.hostnames) && size(r.spec.hostnames) > 0 && !r.spec.hostnames.exists(h, h == '*'))", celrule.Lit("spec.hostnames"), "r.?spec.?hostnames",
 					"'the HTTPRoute takes traffic for every host'")+")",
 			concat(ingressTypes, routeTypes, traefikRouteTypes), "GK:block-wildcard-ingress", "KY:disallow-empty-ingress-host", "KY:restrict-ingress-wildcard"),
+		uniqueIngressHost,
 		celCheck("CH-0608", "gateway-allowed-routes", guardrails.PriorityMedium, "Gateway listeners admit routes from chosen namespaces",
 			"Warns on a Gateway listener whose allowedRoutes admit routes from All namespaces, so any namespace can take its traffic. Fix: allow Same, or a selector of the namespaces that serve it.",
 			listFailures("spec.listeners", "has(x.allowedRoutes) && has(x.allowedRoutes.namespaces) && has(x.allowedRoutes.namespaces.from) && x.allowedRoutes.namespaces.from == 'All'",
