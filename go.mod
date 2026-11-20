@@ -9,7 +9,6 @@ require (
 	github.com/confighub/sdk/core v0.11.11
 	github.com/confighub/sdk/function-impl v0.11.11
 	github.com/confighub/sdk/managerkit v0.11.11
-	github.com/google/cel-go v0.26.0
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/protobuf v1.36.8
@@ -50,6 +49,7 @@ require (
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/google/cel-go v0.26.0 // indirect
 	github.com/google/gnostic v0.7.1 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
