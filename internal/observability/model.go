@@ -9,7 +9,11 @@
 // Parsing is lenient: malformed documents are skipped, never errored on.
 package observability
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // ResourceOrigin records where a resource came from in ConfigHub.
 type ResourceOrigin struct {
@@ -72,6 +76,12 @@ type ServiceEntity struct {
 // Prometheus metrics.
 var metricsPortNames = map[string]bool{
 	"metrics": true, "http-metrics": true, "monitoring": true, "prometheus": true, "telemetry": true,
+}
+
+// MetricsPortNames are the port names that mark a Service as a metrics scrape
+// target, sorted.
+func MetricsPortNames() []string {
+	return slices.Sorted(maps.Keys(metricsPortNames))
 }
 
 // ExposesMetrics reports whether the Service looks like a metrics scrape target:

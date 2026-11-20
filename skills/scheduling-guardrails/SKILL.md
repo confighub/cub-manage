@@ -17,7 +17,7 @@ Turn the scheduling anti-patterns a single Unit can answer into **enforcement** 
 
 ## Why this matters
 
-Each rule is a plain **per-resource `vet-cel`** check — a single Unit answers it (does this controller have tolerations but no nodeSelector and no required node affinity? does its spread constraint select its own Pods?), so no annotate-then-validate is needed. The checks that need a cluster's facts (a topologyKey no node carries, minDomains above the zone count) stay in **scheduling-findings**, since a Trigger sees one Unit and not its cluster. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
+Each rule is a plain **per-resource `vet-cel`** check — a single Unit answers it (does this controller have tolerations but no nodeSelector and no required node affinity? does its spread constraint select its own Pods?). The checks that need a cluster's facts (a topologyKey no node carries, minDomains above the zone count) stay in **scheduling-findings**, since a Trigger sees one Unit and not its cluster. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
 
 ## When to use
 

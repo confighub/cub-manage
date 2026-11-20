@@ -17,9 +17,9 @@
     },
     {
       "id": 3,
-      "name": "annotate-coverage",
+      "name": "flag-uncovered",
       "prompt": "Flag the uncovered workloads so they show up as warnings.",
-      "expected_output": "Previews then runs `cub manage netpol guardrails annotate --commit --change-desc ...`, writing the netpol.confighub.com/ingress-coverage annotation onto each workload Unit no ingress policy selects, which the netpol-ingress-coverage Trigger reads; notes re-running clears stale annotations.",
+      "expected_output": "Installs the pack if it is not installed (dry-run, then --commit), and explains that the netpol-ingress-coverage rule reads the NetworkPolicies on each workload's cluster and flags the workloads none selects as their Units change; checks with `cub manage guardrails status`.",
       "files": []
     },
     {

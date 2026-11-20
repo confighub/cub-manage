@@ -3,13 +3,12 @@ module github.com/confighub/cub-manage
 go 1.26.0
 
 require (
-	github.com/confighub/sdk/cliutil v0.11.10
-	github.com/confighub/sdk/configkit/k8skit v0.11.10
-	github.com/confighub/sdk/configkit/yqkit v0.11.10
-	github.com/confighub/sdk/core v0.11.10
-	github.com/confighub/sdk/function-impl v0.11.10
-	github.com/confighub/sdk/managerkit v0.11.10
-	github.com/google/cel-go v0.26.0
+	github.com/confighub/sdk/cliutil v0.11.11
+	github.com/confighub/sdk/configkit/k8skit v0.11.11
+	github.com/confighub/sdk/configkit/yqkit v0.11.11
+	github.com/confighub/sdk/core v0.11.11
+	github.com/confighub/sdk/function-impl v0.11.11
+	github.com/confighub/sdk/managerkit v0.11.11
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/protobuf v1.36.8
@@ -33,7 +32,7 @@ require (
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
-	github.com/confighub/sdk/cubutil v0.11.10 // indirect
+	github.com/confighub/sdk/cubutil v0.11.11 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dimchansky/utfbom v1.1.1 // indirect
 	github.com/elliotchance/orderedmap v1.8.0 // indirect
@@ -50,6 +49,7 @@ require (
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/google/cel-go v0.26.0 // indirect
 	github.com/google/gnostic v0.7.1 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

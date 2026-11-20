@@ -5,14 +5,14 @@
       "id": 1,
       "name": "install-dry-run-then-commit",
       "prompt": "Enforce that our metrics services are scraped by a ServiceMonitor.",
-      "expected_output": "Runs `cub manage preflight`, previews `cub manage observability guardrails install` (dry-run), then on confirmation `guardrails install --commit`, and explains coverage uses annotate-then-validate (run `guardrails annotate --commit` too). Trigger is Warn=true.",
+      "expected_output": "Runs `cub manage preflight`, previews `cub manage observability guardrails install` (dry-run), then on confirmation `guardrails install --commit`, and explains the rule reads the ServiceMonitors on each Service's cluster, so nothing else needs running. Trigger is Warn=true.",
       "files": []
     },
     {
       "id": 2,
-      "name": "annotate",
+      "name": "flag-uncovered",
       "prompt": "Make the uncovered metrics services show a warning.",
-      "expected_output": "Runs `cub manage observability guardrails annotate` dry-run then --commit --change-desc, after the pack is installed.",
+      "expected_output": "Installs the pack if it is not installed (dry-run, then --commit), and explains that the observability-servicemonitor-coverage rule flags uncovered metrics Services by itself as their Units change; checks with `cub manage guardrails status`.",
       "files": []
     },
     {

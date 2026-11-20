@@ -72,15 +72,6 @@ func MapKeyPath(prefix, key string) string {
 	return prefix + "." + strings.ReplaceAll(key, ".", "~1")
 }
 
-// AnnotationFailures fails r while it carries the annotation key, which a
-// guardrails annotate command writes on a Unit to record what no single
-// resource can show. The null check matters: a bare `annotations:` key is
-// present with a null value, and `in` against null is an error.
-func AnnotationFailures(key, detail string) string {
-	present := "has(r.metadata.annotations) && r.metadata.annotations != null && " + Lit(key) + " in r.metadata.annotations"
-	return When(present, "["+Failure(Lit(MapKeyPath("metadata.annotations", key)), Some("r.metadata.annotations["+Lit(key)+"]"), Lit(detail))+"]")
-}
-
 // ContainerPath is the path of field in the container c of a pod template, by
 // the container's name, as ConfigHub's functions report it.
 func ContainerPath(field string) string {

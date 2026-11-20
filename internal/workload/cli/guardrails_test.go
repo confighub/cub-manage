@@ -164,22 +164,33 @@ spec:
 	}
 }
 
-func TestPDBCoverageFinding(t *testing.T) {
-	annotated := `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: web
-  namespace: shop
-  annotations:
-    workload.confighub.com/pdb-coverage: uncovered
-`
-	result := celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-pdb-coverage"), annotated)
-	celruletest.Expect(t, result, "metadata.annotations.workload~1confighub~1com/pdb-coverage")
-	if len(result.FailedAttributes) == 1 && result.FailedAttributes[0].Value != "uncovered" {
-		t.Errorf("value = %v, want the annotation's", result.FailedAttributes[0].Value)
+// A workload running more than one replica is guarded by a PodDisruptionBudget selecting its
+// pods in its namespace on its cluster.
+func TestPDBCoverage(t *testing.T) {
+	check := celruletest.Check(t, Pack, "workload-pdb-coverage")
+	onCluster := map[string]any{"TargetID": "4d6b2a1e-0000-4000-8000-000000000001"}
+	web := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\n" +
+		"spec:\n  replicas: 3\n  template:\n    metadata:\n      labels:\n        app: web\n"
+	pdb := func(namespace, selector string) string {
+		return "apiVersion: policy/v1\nkind: PodDisruptionBudget\nmetadata:\n  name: web\n  namespace: " + namespace +
+			"\nspec:\n  minAvailable: 1\n" + selector
 	}
-	// A bare annotations key is null, and passes.
-	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "workload-pdb-coverage"), "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n"))
+	guarded := pdb("shop", "  selector:\n    matchLabels: {app: web}\n")
+
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, onCluster, nil, celruletest.Other{"pdbs": {guarded}}, check, web))
+	result := celruletest.EvalCheckOther(t, onCluster, nil, celruletest.Other{"pdbs": {pdb("billing", "  selector:\n    matchLabels: {app: web}\n")}}, check, web)
+	celruletest.Expect(t, result, "spec.template.metadata.labels")
+	celruletest.ExpectResource(t, result, "shop/web", "apps/v1/Deployment")
+	if len(result.Details) != 1 || !strings.Contains(result.Details[0], "runs 3 replicas") {
+		t.Errorf("details = %q, want one saying it runs 3 replicas", result.Details)
+	}
+	// A budget with no selector selects no pods.
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, onCluster, nil, celruletest.Other{"pdbs": {pdb("shop", "")}}, check, web), "spec.template.metadata.labels")
+	// One replica, or no Target, needs none.
+	single := strings.Replace(web, "replicas: 3", "replicas: 1", 1)
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, onCluster, nil, nil, check, single))
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, onCluster, nil, nil, check, strings.Replace(web, "  replicas: 3\n", "", 1)))
+	celruletest.Expect(t, celruletest.EvalCheckOther(t, map[string]any{}, nil, nil, check, web))
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {

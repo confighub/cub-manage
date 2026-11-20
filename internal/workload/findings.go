@@ -10,7 +10,7 @@ import (
 )
 
 // Finding is one ranked readiness issue on one workload, with enough origin to
-// deep-link and (later) annotate the offending Unit.
+// deep-link to the offending Unit.
 type Finding struct {
 	Severity  api.Score `json:"severity"`
 	Analyzer  string    `json:"analyzer"` // the check that failed

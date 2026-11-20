@@ -259,8 +259,8 @@ terminationMessagePolicy, database images
 in a StatefulSet or DaemonSet rather than a Deployment), a `vet-images`
 Trigger that warns on an image with no image tag or the `latest` image tag, two
 `vet-pod-security-standard` Triggers holding pods to the baseline and restricted
-Pod Security Standards check by check, plus an
-annotate-then-validate Trigger for PDB coverage — labeled `Pack: workload`,
+Pod Security Standards check by check, plus a Trigger for PDB coverage that
+reads the PodDisruptionBudgets on each workload's cluster — labeled `Pack: workload`,
 and adds the `workload` group to each in-scope Space's `WhereTrigger`. It's
 dry-run by default and **conservative**: it skips Spaces that already select
 Triggers their own way rather than clobbering them.
@@ -273,13 +273,12 @@ Plan (dry-run) — guardrail group "workload" in policy Space "common"
   already wired (1): platform-dev
 ```
 
-Apply with `--commit`. The per-resource rules fire on their own; the
-cross-Unit PDB-coverage rule is fed by `guardrails annotate`, which stamps the
-finding onto each uncovered multi-replica workload:
+Apply with `--commit`. The rules fire as Units change. The PDB-coverage rule
+reads the PodDisruptionBudgets of the Units released to the same Target, so adding
+a budget re-runs it on the workloads that read it:
 
 ```console
 $ cub manage workload guardrails install --commit
-$ cub manage workload guardrails annotate --commit --change-desc "Annotate uncovered workloads"
 $ cub manage guardrails status -o table       # Units now carrying ValidationWarnings
 ```
 

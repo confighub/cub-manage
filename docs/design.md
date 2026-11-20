@@ -132,12 +132,13 @@ as `vet-images`. A `vet-cel` rule reports, for a resource that fails it, each at
 -- its path and value -- with a sentence saying why, so a reader can point at the field to fix or
 the resource to except; `internal/celrule` builds those expressions. Each rule also has a
 DisplayName, which its Trigger is given, for where a person reads it, such as the Validation page.
-A rule about a set cannot be expressed that way: a Trigger sees one Unit, so it
-cannot tell whether a PodDisruptionBudget in another Unit covers the workload in this one. For
-those, the group's `guardrails annotate` command runs the fleet analysis and writes the finding
-onto each affected Unit as an annotation, and a per-resource rule warns while the annotation is
-present. The annotation is a cached finding, so it is rewritten on every run; a stale "covered"
-is worse than none.
+A rule about a set -- whether a PodDisruptionBudget in another Unit covers the workload in this
+one -- reads the other resources it needs as the check's `OtherData`: under a key, the resource
+types it reads. Its rule's Trigger selects them for each Space from the Units released to the same
+Target, and `vet-cel` passes them as `other.<key>`, which the rule matches with `selects`,
+`podLabels` and `namespaceLabels`. A change to one of those Units re-runs the rule on the Units
+that read it. A Unit with no Target is on no known cluster, so such a rule passes it; a Space
+without a Target selecting its own Units instead is left for later.
 
 ### 4.1 Code layout
 
@@ -202,8 +203,6 @@ A group's help lists its read commands, then its write commands, under those two
 | `findings`               | read  | Severity-ranked findings from every analyzer the group has                                     |
 | `fleet-edit --profile`   | write | Apply one of the library's profiles to the group's kinds in every Unit a selector names        |
 | `guardrails install`     | write | Plan, or with `--commit` install, the group's pack and opt Spaces into it                      |
-
-A group whose pack has a rule about a set also has `guardrails annotate` (§4).
 
 Every `list` prints the same row — cluster, kind, name, namespace, Space, Unit — and `autoscale`'s
 adds the autoscaler's target and replica range. Every `findings` prints the same report: findings of
@@ -281,9 +280,8 @@ that writes this way.
 - Guardrail rule slugs start with the group name: `<group>-<rule>`.
 - Analyzer names are singular and name what is wrong: `orphaned-binding`, `missing-pdb`,
   `uncovered-ingress`.
-- A finding annotation is named for the gap it records, and so is the rule that reads it:
-  `<group>.confighub.com/<gap>-coverage` and `<group>-<gap>-coverage`, as in
-  `workload.confighub.com/pdb-coverage` and `workload-pdb-coverage`.
+- A rule about a gap in coverage is named for the gap: `<group>-<gap>-coverage`, as in
+  `workload-pdb-coverage`.
 
 ## 6. The command groups
 
@@ -354,8 +352,8 @@ Whether a cluster enforces NetworkPolicy at all is its Target's `Cluster.Network
 fact, which `cub k8s collect` and the bots that run in the cluster collect: a network plugin's
 name, empty for none, absent when it could not be told. `snapshot` and `coverage` show it, and
 `findings` leads with a `not-enforced` finding for a cluster that enforces none. Such a cluster is
-still analyzed as if it did, so that its policies are right by the time it does, but `guardrails
-annotate` skips it, since no policy can cover a workload there.
+still analyzed as if it did, so that its policies are right by the time it does, but the coverage
+and default-deny rules pass its Units, since no policy can cover a workload there.
 
 Fixes: `default-deny` for a namespace, or for every namespace in scope that lacks one (with
 `--egress`, also denying egress but allowing DNS, since a bare egress default-deny breaks name
@@ -632,10 +630,12 @@ rather than adding a second copy.
   analysis (§7.4, §7.7) natural and a fleet-wide report cheap.
 - **Tool-level `findings`, and every pack in one install.** Every group's findings in one ranked
   list, and every group's pack opted into in one command.
-- **Validation over a set of Units.** Annotate-then-validate stands in for a validating function
-  that can see more than one Unit. With one, the set rules — PodDisruptionBudget, NetworkPolicy and
-  ServiceMonitor coverage — become ordinary guardrails, and the existing per-object validators'
-  cross-object checks work as Triggers too.
+- **Spaces without a Target.** A rule about a set reads the Units released to the Space's Target,
+  so a Unit with no Target passes it. Selecting the Space's own Units when it has no Target would
+  check those too.
+- **More rules about sets.** `pdb-allows-eviction`, `autoscale-target`, `servicemonitor-selects`,
+  RBAC role existence, `service-account-token`, references between resources and uniqueness per
+  cluster can read other resources the same way.
 - **Server-side analysis.** The engines run in the client. A map-reduce over Units on the server
   would let the analyses run where the data is; several group by a field inside the resources (the
   namespace), not by Space or Target, which such a facility would need to support.
