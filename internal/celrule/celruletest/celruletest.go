@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package celruletest evaluates a rule's expression on a resource the way vet-cel
-// does, for the packs' tests: the same CEL environment and variables, the
+// does, for the packs' tests: vet-cel's own CEL environment and variables, the
 // resource read from YAML as a map, and the result read the way vet-cel reads it.
 package celruletest
 
@@ -12,9 +12,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/confighub/sdk/function-impl/generic"
 	"github.com/confighub/sdk/managerkit/guardrails"
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/ext"
 	"google.golang.org/protobuf/types/known/structpb"
 	"sigs.k8s.io/yaml"
 )
@@ -52,19 +51,17 @@ func EvalIn(t *testing.T, functionContext map[string]any, expression, resourceYA
 // EvalWith is EvalIn with params, as vet-cel takes them: each a string, keyed <check>.<name>.
 func EvalWith(t *testing.T, functionContext, params map[string]any, expression, resourceYAML string) Result {
 	t.Helper()
-	env, err := cel.NewEnv(
-		cel.DefaultUTCTimeZone(true),
-		cel.CrossTypeNumericComparisons(true),
-		cel.OptionalTypes(),
-		ext.Strings(),
-		ext.Sets(),
-		ext.Lists(),
-		ext.Encoders(),
-		cel.Variable("r", cel.DynType),
-		cel.Variable("object", cel.DynType),
-		cel.Variable("params", cel.DynType),
-		cel.Variable("functionContext", cel.DynType),
-	)
+	return evalOther(t, functionContext, params, nil, expression, resourceYAML)
+}
+
+// Other are the resources a check reads besides the one it checks, by OtherData key, each in
+// YAML, as a selection would pass them.
+type Other map[string][]string
+
+// evalOther evaluates expression on the resource in resourceYAML with the other resources.
+func evalOther(t *testing.T, functionContext, params map[string]any, other Other, expression, resourceYAML string) Result {
+	t.Helper()
+	env, err := generic.NewCELEnv(append(generic.CELVarOpts(), generic.CELOtherDataVarOpts()...))
 	if err != nil {
 		t.Fatalf("CEL environment: %v", err)
 	}
@@ -80,9 +77,21 @@ func EvalWith(t *testing.T, functionContext, params map[string]any, expression, 
 	if err := yaml.Unmarshal([]byte(resourceYAML), &resource); err != nil {
 		t.Fatalf("resource: %v", err)
 	}
-	val, _, err := program.Eval(map[string]any{
-		"r": resource, "object": resource, "params": params, "functionContext": functionContext,
-	})
+	others, origins := map[string][]any{}, map[string][]any{}
+	for key, documents := range other {
+		others[key], origins[key] = []any{}, []any{}
+		for _, document := range documents {
+			var decoded map[string]any
+			if err := yaml.Unmarshal([]byte(document), &decoded); err != nil {
+				t.Fatalf("other %s: %v", key, err)
+			}
+			others[key] = append(others[key], decoded)
+			origins[key] = append(origins[key], map[string]any{})
+		}
+	}
+	activation := generic.CELActivation(resource, params, functionContext)
+	activation["other"], activation["otherOrigins"] = others, origins
+	val, _, err := program.Eval(activation)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -193,6 +202,18 @@ func EvalCheckIn(t *testing.T, functionContext map[string]any, check guardrails.
 // the rest, as install writes them.
 func EvalCheckWith(t *testing.T, functionContext map[string]any, given map[string]string, check guardrails.Check, resourceYAML string) Result {
 	t.Helper()
+	return EvalCheckOther(t, functionContext, given, nil, check, resourceYAML)
+}
+
+// EvalCheckOther is EvalCheckWith with the other resources the check reads, by its OtherData
+// keys. A key the check declares that other leaves out is passed as no resources.
+func EvalCheckOther(t *testing.T, functionContext map[string]any, given map[string]string, other Other, check guardrails.Check, resourceYAML string) Result {
+	t.Helper()
+	for key := range other {
+		if !slices.ContainsFunc(check.OtherData, func(data guardrails.OtherData) bool { return data.Key == key }) {
+			t.Fatalf("the check %s reads no other data %s", check.Name, key)
+		}
+	}
 	params := map[string]any{}
 	for _, p := range check.Params {
 		value, ok := given[p.Name]
@@ -201,7 +222,7 @@ func EvalCheckWith(t *testing.T, functionContext map[string]any, given map[strin
 		}
 		params[check.Name+"."+p.Name] = value
 	}
-	result := EvalWith(t, functionContext, params, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
+	result := evalOther(t, functionContext, params, other, guardrails.CheckExpression([]guardrails.Check{check}), resourceYAML)
 	for _, a := range result.FailedAttributes {
 		if !reflect.DeepEqual(a.Checks, []string{check.Name}) {
 			t.Errorf("the failure at %s names checks %q, want %s", a.Path, a.Checks, check.Name)

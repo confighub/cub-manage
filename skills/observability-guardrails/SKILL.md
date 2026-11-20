@@ -1,6 +1,6 @@
 ---
 name: observability-guardrails
-description: 'Install and operate the observability enforcement pack with the cub manage observability CLI — an common Space with a Warn=true vet-cel Trigger that flags metrics-exposing Services with no ServiceMonitor, fed by annotate-then-validate (coverage is a cross-Unit property). guardrails install (dry-run by default), status (Units with ValidationWarnings/Gates), annotate (write the coverage finding onto uncovered Service Units). Use for "enforce that metrics services are scraped", "warn on services with no ServiceMonitor", "which services are flagged?". Not for read-only findings (use observability-findings) or fixing coverage (use observability-instrument).'
+description: 'Install and operate the observability enforcement pack with the cub manage observability CLI — an common Space with a Warn=true vet-cel Trigger that flags metrics-exposing Services no ServiceMonitor on their cluster selects. guardrails install (dry-run by default), status (Units with ValidationWarnings/Gates). Use for "enforce that metrics services are scraped", "warn on services with no ServiceMonitor", "which services are flagged?". Not for read-only findings (use observability-findings) or fixing coverage (use observability-instrument).'
 phase: act
 allowed-tools: Bash(cub manage observability --help) Bash(cub manage observability * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage observability guardrails) Bash(cub manage observability guardrails *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
@@ -11,16 +11,15 @@ Turn the ServiceMonitor-coverage gap into **enforcement** — an advisory Valida
 
 - **`guardrails install`** — creates the `common` Space, a `Warn=true` `vet-cel` Trigger (`observability-servicemonitor-coverage`), labeled `Pack: observability`, then adds the `observability` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
 - **`cub manage guardrails status`** — lists Units carrying observability ValidationWarnings or ValidationErrors.
-- **`guardrails annotate`** — writes the `observability.confighub.com/servicemonitor-coverage` annotation onto each metrics-Service Unit no ServiceMonitor selects (the producing half of annotate-then-validate). Dry-run unless `--commit --change-desc`.
 
 ## Why this matters
 
-ServiceMonitor coverage is a **cross-Unit** property (the ServiceMonitor and the Service are separate Units), so a per-Unit `vet-cel` can't compute it directly. This uses **annotate-then-validate**: `annotate` computes coverage and stamps the finding on the uncovered Service Unit, and the Trigger turns that annotation into a warning. `install` is conservative — it skips Spaces that already select Triggers their own way rather than clobbering them.
+ServiceMonitor coverage is a **cross-Unit** property: the ServiceMonitor and the Service are separate Units. The Trigger reads the ServiceMonitors of the Units released to the same Target as the Service's Space, which each Space selects for itself, so adding or changing a ServiceMonitor re-runs it on the Services that read it. A Unit with no Target is on no known cluster, so it passes. `install` is conservative — it skips Spaces that already select Triggers their own way rather than clobbering them.
 
 ## When to use
 
-- "Enforce that metrics Services are scraped." → `guardrails install` (preview), then `--commit`, then `guardrails annotate --commit`.
-- "Warn on Services with no ServiceMonitor." → the `install`ed Trigger + `annotate`.
+- "Enforce that metrics Services are scraped." → `guardrails install` (preview), then `--commit`.
+- "Warn on Services with no ServiceMonitor." → the `install`ed Trigger.
 - "Which Services are flagged?" → `cub manage guardrails status`.
 
 ## Do not load for
@@ -38,9 +37,8 @@ ServiceMonitor coverage is a **cross-Unit** property (the ServiceMonitor and the
 
 1. **Preview** (dry-run — the default): `cub manage observability guardrails install -o table`.
 2. **Install** with `--commit`. The Trigger is `Warn=true` (advisory); promote to blocking with `cub manage guardrails update observability-servicemonitor-coverage --enforce --commit`.
-3. **Feed the finding**: `cub manage observability guardrails annotate` (dry-run), then `--commit --change-desc`. Re-run after adding ServiceMonitors so the cached annotation stays fresh.
-4. **Check**: `cub manage guardrails status -o table`.
-5. **Fix** flagged Services via **observability-instrument**, then re-check.
+3. **Check**: `cub manage guardrails status -o table`.
+4. **Fix** flagged Services via **observability-instrument**, then re-check.
 
 ## Exceptions
 
@@ -61,9 +59,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install` (dry-run unless `--commit`), `status`, `annotate` (dry-run unless `--commit --change-desc`). Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing coverage is **observability-instrument**.
+Allowed: `guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing coverage is **observability-instrument**.
 
 ## References
 
-- `cub manage observability guardrails --help`, `… install --help`, `… status --help`, `… annotate --help`.
+- `cub manage observability guardrails --help`, `… install --help`, `… status --help`.
 - Companion skills: **observability-instrument**, **observability-findings**, `triggers-and-applygates`.

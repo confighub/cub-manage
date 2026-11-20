@@ -10,9 +10,9 @@
     },
     {
       "id": 2,
-      "name": "annotate-pdb-coverage",
+      "name": "flag-pdb-coverage",
       "prompt": "Make uncovered multi-replica workloads show a PDB warning.",
-      "expected_output": "Explains PDB coverage uses annotate-then-validate, runs `cub manage workload guardrails annotate` dry-run then --commit --change-desc after install. Read side is workload-availability.",
+      "expected_output": "Installs the pack if it is not installed (dry-run, then --commit), and explains that workload-pdb-coverage reads the PodDisruptionBudgets on each workload's cluster, so nothing else needs running. Read side is workload-availability.",
       "files": []
     },
     {

@@ -55,9 +55,6 @@ spec:
 `
 	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-metadata-egress"), excepted))
 	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-no-allow-all-ingress"), excepted))
-
-	annotated := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n    netpol.confighub.com/ingress-coverage: uncovered\n"
-	celruletest.Expect(t, celruletest.EvalCheck(t, celruletest.Check(t, Pack, "netpol-ingress-coverage"), annotated), "metadata.annotations.netpol~1confighub~1com/ingress-coverage")
 }
 
 func TestUnrelatedResourcesPass(t *testing.T) {

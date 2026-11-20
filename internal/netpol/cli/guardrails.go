@@ -5,9 +5,9 @@ package cli
 
 // The NetworkPolicy guardrail pack. The mechanism -- policy Space, Triggers,
 // the group selection on each in-scope Space, and reporting the Units a Trigger
-// marked -- is managerkit/guardrails'. What is netpol's is the rules, and the
-// annotate command, which turns ingress coverage, which no single resource can
-// express, into an annotation the pack's own rule then warns on.
+// marked -- is managerkit/guardrails'. What is netpol's is the rules. Those that
+// depend on more than one resource, such as whether any policy selects a
+// workload, read the cluster's other resources (cluster_checks.go).
 
 import (
 	"context"
@@ -22,16 +22,10 @@ import (
 
 	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
-	"github.com/confighub/cub-manage/internal/netpol/snapshot"
 )
 
-// coverageAnnotation is written by `guardrails annotate` onto each workload Unit
-// no ingress NetworkPolicy selects, and read by the coverage rule
-// (annotate-then-validate).
-const coverageAnnotation = "netpol.confighub.com/ingress-coverage"
-
-// The checks' failures, evaluated on each NetworkPolicy, or for the coverage
-// check each resource (r is the resource).
+// The checks' failures, evaluated on each NetworkPolicy, or on the workload or
+// Namespace a check is about (r is the resource).
 
 var networkPolicy = []string{"networking.k8s.io/v1/NetworkPolicy"}
 
@@ -130,10 +124,6 @@ var (
 		"'egress rule ' + string(i) + ' reaches the cloud metadata IP through ' + "+peer+".ipBlock.cidr + ' without excepting it'") +
 		" + " + egressRuleFailures(noDestinations+" && "+allowsPort("TCP", 80),
 		"to", rule+".?to", "'egress rule ' + string(i) + ' names no destinations and allows TCP 80, so it reaches the cloud metadata IP'")
-
-	// Annotate-then-validate: warn while a coverage annotation is present.
-	celNoCoverageFinding = celrule.AnnotationFailures(coverageAnnotation,
-		"no ingress NetworkPolicy selects this workload, as guardrails annotate found")
 )
 
 var Pack = guardrails.Pack{
@@ -156,9 +146,26 @@ var Pack = guardrails.Pack{
 			Description: "Warns on a NetworkPolicy that isolates egress and allows some, but no DNS (UDP 53): once enforced, the pods it selects cannot resolve names. A policy with no egress rules, a deliberate deny-all, is not checked. Fix: allow UDP and TCP 53 to the cluster DNS. Policies add up, so where a separate policy allows DNS, except this one, and `cub manage netpol findings` checks the union.",
 			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityHigh, Failures: celEgressAllowsDNS, ResourceTypes: networkPolicy},
 		{Control: "CH-0506", Name: "netpol-ingress-coverage", Rule: "netpol-ingress-coverage", DisplayName: "Workloads have an ingress NetworkPolicy",
-			Description: "Warns while a netpol.confighub.com/ingress-coverage annotation is present (set by `cub manage netpol guardrails annotate`): a workload no ingress NetworkPolicy selects. Fix: `cub manage netpol default-deny <namespace>` and an allow policy, then re-run annotate.",
-			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, Failures: celNoCoverageFinding,
+			Description: "Warns on a workload that no NetworkPolicy isolating ingress selects, among the NetworkPolicies on its cluster: its pods accept traffic from anywhere. Not checked where the cluster records that nothing enforces NetworkPolicy, nor for a Unit with no Target. Fix: `cub manage netpol default-deny <namespace>` and an allow policy.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, Failures: celIngressCoverage,
+			ResourceTypes: celrule.WorkloadTypes(), OtherData: []guardrails.OtherData{otherPolicies},
+			Fix:         "cub manage netpol default-deny <namespace>",
 			Corresponds: []string{"SC:pod-networkpolicy", "KS:C-0206", "KS:C-0260"}},
+		{Control: "CH-0507", Name: "netpol-selects-pods", Rule: "netpol-selects-pods", DisplayName: "NetworkPolicies select workloads",
+			Description: "Warns on a NetworkPolicy whose podSelector selects no workload on its cluster in its namespace, which protects nothing, and on a rule's peer whose podSelector selects none, which allows nothing: most often a label renamed or misspelled. A peer with a namespaceSelector, and an empty selector, are not checked. Fix: correct the selector, or except the policy if it selects pods made outside ConfigHub.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow, Failures: celSelectsPods,
+			ResourceTypes: networkPolicy, OtherData: []guardrails.OtherData{otherWorkloads},
+			Corresponds: []string{"SC:networkpolicy-targets-pod", "KL:dangling-networkpolicy", "KL:dangling-networkpolicypeer-podselector"}},
+		{Control: "CH-0508", Name: "netpol-default-deny", Rule: "netpol-default-deny", DisplayName: "Namespaces deny ingress by default",
+			Description: "Warns on a Namespace holding workloads on its cluster where no NetworkPolicy denies ingress by default: one selecting every pod, isolating ingress, with no rule admitting all traffic. Not checked where the cluster records that nothing enforces NetworkPolicy, nor for a Unit with no Target. Fix: `cub manage netpol default-deny <namespace>`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celDefaultDeny,
+			ResourceTypes: []string{"v1/Namespace"}, OtherData: []guardrails.OtherData{otherWorkloads, otherPolicies},
+			Fix:         "cub manage netpol default-deny <namespace>",
+			Corresponds: []string{"CIS:5.3.2"}},
+		{Control: "CH-0509", Name: "netpol-allowed-at-both-ends", Rule: "netpol-allowed-at-both-ends", DisplayName: "Allowed flows are allowed at both ends",
+			Description: "Warns on a NetworkPolicy rule that allows the pods it selects to reach, or be reached by, a workload whose own policies isolate the other direction and do not allow the flow, so the traffic is dropped there. Only rules naming their peers are checked; ports are not compared. Fix: add the matching ingress or egress allow at the other end.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celAllowedAtBothEnds,
+			ResourceTypes: networkPolicy, OtherData: []guardrails.OtherData{otherWorkloads, otherPolicies, otherNamespaces}},
 	},
 }
 
@@ -167,7 +174,7 @@ func preflight(ctx context.Context) (*cubapi.Client, error) { return cub.Preflig
 func newGuardrailsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guardrails",
-		Short: "Install, inspect, and feed the NetworkPolicy guardrail policy pack",
+		Short: "Install and inspect the NetworkPolicy guardrail policy pack",
 		Long: `guardrails manages a pack of NetworkPolicy validation policies, defined once in a
 policy Space and enforced in each Space that opts into the group:
 
@@ -176,66 +183,23 @@ policy Space and enforced in each Space that opts into the group:
   netpol-no-open-egress        egress rules must name destinations or ports
   netpol-no-metadata-egress    no egress to the cloud metadata IP
   netpol-egress-allows-dns     a policy that isolates egress must allow DNS
-  netpol-ingress-coverage      warns while a workload is annotated as selected by no
-                               ingress NetworkPolicy (§ annotate)
+  netpol-ingress-coverage      a workload has a NetworkPolicy isolating its ingress
+  netpol-selects-pods          a policy, and each podSelector peer, selects a workload
+  netpol-default-deny          a namespace with workloads denies ingress by default
+  netpol-allowed-at-both-ends  a flow a rule allows is allowed at the other end too
 
 Triggers are created with Warn=true (advisory ValidationWarnings, never blocking).
 Promote one to blocking later with:
   cub trigger update <slug> --space <policy-space> --unwarn
 
-The coverage rule realizes the annotate-then-validate model: whether a policy
-selects a workload depends on two Units, which a per-Unit vet-cel can't see, so
-'guardrails annotate' writes the coverage gap onto the workload's Unit and this
-Trigger turns it into a warning.
+The last four read the NetworkPolicies, workloads and Namespaces on the
+cluster: those of the Units released to the same Target as the Space, which each
+Space selects for itself. A change to one of them re-runs the rules on the Units
+that read it. A Unit with no Target is on no known cluster, so they pass it.
 
 Except one resource from a rule with 'cub manage guardrails exception add';
 'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(Pack.InstallCmd(preflight), Pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
-}
-
-// annotateSpec is the netpol half of `guardrails annotate`: which workload Units
-// no ingress policy selects, and what to write on them. The rest of the command
-// is managerkit/guardrails'.
-var annotateSpec = guardrails.AnnotateSpec{
-	Key:   coverageAnnotation,
-	Noun:  "workload Unit",
-	Short: "Annotate each workload Unit no ingress NetworkPolicy selects",
-	Long: `annotate runs the coverage analysis and writes a netpol.confighub.com/
-ingress-coverage annotation onto each workload Unit that no ingress NetworkPolicy
-selects. Paired with the netpol-ingress-coverage rule from 'guardrails install',
-this turns the cross-Unit coverage gap into an advisory ValidationWarning.
-
-Re-run after adding policies: a covered workload's annotation is removed. Dry run
-unless --commit --change-desc.`,
-	Targets: func(ctx context.Context, c *cubapi.Client, where, cluster string) ([]guardrails.Target, error) {
-		snap, err := snapshot.Load(ctx, c, where)
-		if err != nil {
-			return nil, err
-		}
-		var out []guardrails.Target
-		for clusterName, cl := range snap.Clusters {
-			if cluster != "" && clusterName != cluster {
-				continue
-			}
-			// Where nothing enforces NetworkPolicy, no policy can cover a
-			// workload, so a warning for each would only be noise.
-			if cl.Enforcement.NotEnforced() {
-				continue
-			}
-			_, workloads := cl.Coverage()
-			for _, w := range workloads {
-				if w.IngressCovered || w.Origin.UnitID == "" || w.Origin.SpaceID == "" {
-					continue
-				}
-				out = append(out, guardrails.Target{
-					SpaceID: w.Origin.SpaceID, UnitSlug: w.Origin.UnitSlug, Value: "uncovered",
-					Space: w.Origin.Space, Cluster: clusterName, Namespace: w.Namespace,
-					Detail: w.Kind + " " + w.Name,
-				})
-			}
-		}
-		return out, nil
-	},
 }

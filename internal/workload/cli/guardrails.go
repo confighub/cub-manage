@@ -5,8 +5,7 @@ package cli
 
 // This tool's guardrail pack. The mechanism -- policy Space, Triggers, the group
 // selection on each in-scope Space, and reporting the Units a Trigger marked
-// -- is managerkit/guardrails'. What is this tool's is the rules, and which
-// Units the annotate command has something to say about.
+// -- is managerkit/guardrails'. What is this tool's is the rules.
 
 import (
 	"context"
@@ -20,14 +19,11 @@ import (
 
 	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
-	"github.com/confighub/cub-manage/internal/workload"
-	"github.com/confighub/cub-manage/internal/workload/snapshot"
 )
 
-// pdbCoverageAnnotation is written by `guardrails annotate` onto each uncovered
-// multi-replica workload Unit, and read by the pdb-coverage rule
-// (annotate-then-validate -- the one finding a per-Unit CEL check cannot see).
-const pdbCoverageAnnotation = "workload.confighub.com/pdb-coverage"
+// otherPDBs are the PodDisruptionBudgets on a workload's cluster, which
+// workload-pdb-coverage reads.
+var otherPDBs = guardrails.OtherData{Key: "pdbs", ResourceTypes: []string{"policy/v1/PodDisruptionBudget", "policy/v1beta1/PodDisruptionBudget"}}
 
 const containers = "r.spec.template.spec.containers"
 
@@ -66,9 +62,16 @@ var (
 		"terminationMessagePolicy", "c.?terminationMessagePolicy",
 		"'container ' + c.name + ' does not set terminationMessagePolicy: FallbackToLogsOnError'")
 
-	// Annotate-then-validate: warn while a pdb-coverage finding annotation is present.
-	celNoPDBFinding = celrule.AnnotationFailures(pdbCoverageAnnotation,
-		"no PodDisruptionBudget selects this workload, as guardrails annotate found")
+	// A workload running more than one replica is guarded by a PodDisruptionBudget in its
+	// namespace on its cluster whose selector selects its pods. A budget with no selector
+	// selects none. A Unit with no Target is on no known cluster, so it passes.
+	celPDBCoverage = celrule.When(
+		celrule.OnACluster+" && r.?spec.?replicas.orValue(1) > 1 && podLabels(r) != null && "+
+			"!"+celrule.Other(otherPDBs.Key)+".exists(b, "+celrule.NamespaceOf("b")+" == "+celrule.NamespaceOf("r")+
+			" && b.?spec.?selector.orValue(null) != null && selects(b.spec.selector, podLabels(r)))",
+		"["+celrule.Failure(celrule.PodLabelsPath(), celrule.Some("podLabels(r)"),
+			"'runs ' + string(int(r.spec.replicas)) + ' replicas, and no PodDisruptionBudget in namespace ' + "+
+				celrule.NamespaceOf("r")+" + ' selects its pods'")+"]")
 )
 
 // databaseImage matches an image of a common database server by its repository
@@ -117,9 +120,9 @@ var Pack = guardrails.Pack{
 			Corresponds: []string{"KS:C-0271", "KL:unset-memory-requirements", "GK:containerlimits"}},
 		{Control: "CH-0360", Name: "workload-pdb-coverage", Rule: "workload-pdb-coverage",
 			DisplayName: "Workloads have a PodDisruptionBudget",
-			Description: "Warns while a workload.confighub.com/pdb-coverage annotation is present (set by `cub manage workload guardrails annotate`). Fix: `cub manage workload ensure-pdb`, then re-run annotate.",
-			// guardrails annotate writes the finding on each resource of the Unit.
-			Engine: guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celNoPDBFinding,
+			Description: "Warns on a workload running more than one replica that no PodDisruptionBudget in its namespace selects, among those on its cluster: a node drain can take all its pods at once. Not checked for a Unit with no Target. Fix: `cub manage workload ensure-pdb`.",
+			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityMedium, Failures: celPDBCoverage,
+			ResourceTypes: celrule.WorkloadTypes(), OtherData: []guardrails.OtherData{otherPDBs},
 			Fix: "cub manage workload ensure-pdb"},
 		{Control: "CH-0361", Name: "workload-termination-message-policy", Rule: "workload-termination-message-policy",
 			DisplayName: "Containers fall back to logs for termination messages",
@@ -172,11 +175,11 @@ replicas.min and replicas.environments (default 2, in Spaces labeled
 Environment: prod), priority-class.allowed, and allowed-registries.registries,
 which is installed once given.
 
-All but workload-pdb-coverage are per-resource checks — a single Unit answers them,
-no annotation needed. workload-pdb-coverage realizes
-annotate-then-validate for the one property vet-cel can't see under
-one-resource-per-Unit: whether a *matching* PDB exists in some other Unit. 'guardrails annotate' writes that finding onto each
-uncovered workload Unit and this Trigger turns it into a warning.
+All but workload-pdb-coverage check one resource. workload-pdb-coverage reads the
+PodDisruptionBudgets on the workload's cluster: those of the Units released to the
+same Target as the Space, which each Space selects for itself. A change to a
+budget re-runs the rule on the Units that read it. A Unit with no Target is on no
+known cluster, so it passes.
 
 The Pod Security rules run vet-pod-security-standard on Pods and every resource
 with a pod template. A check is named by its Pod Security Standards ID in lowercase
@@ -202,42 +205,6 @@ Promote one to blocking later with:
 Except one resource from a rule with 'cub manage guardrails exception add';
 'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(Pack.InstallCmd(preflight), Pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
-}
-
-// annotateSpec is the workload half of `guardrails annotate`: which Units have
-// a coverage finding, and what to write on them. The rest of the command is
-// managerkit/guardrails'.
-var annotateSpec = guardrails.AnnotateSpec{
-	Key:   pdbCoverageAnnotation,
-	Noun:  "workload Unit",
-	Short: "Annotate each uncovered multi-replica workload Unit with a PDB-coverage finding",
-	Long: `annotate runs the availability analysis and writes a workload.confighub.com/
-pdb-coverage annotation onto each multi-replica workload Unit that has no matching
-PodDisruptionBudget. Paired with the workload-pdb-coverage rule from
-'guardrails install', this turns the cross-Unit coverage finding — the one a
-per-Unit rule can't compute — into an advisory ValidationWarning.
-
-Re-run after adding PDBs. Dry run unless --commit --change-desc.`,
-	Targets: func(ctx context.Context, c *cubapi.Client, where, cluster string) ([]guardrails.Target, error) {
-		snap, err := snapshot.Load(ctx, c, where)
-		if err != nil {
-			return nil, err
-		}
-		var out []guardrails.Target
-		for _, r := range workload.AnalyzeAvailability(snap.Clusters) {
-			if r.HasPDB || r.SpaceID == "" || r.UnitSlug == "" {
-				continue // covered, or no Unit to annotate
-			}
-			if cluster != "" && r.Cluster != cluster {
-				continue
-			}
-			out = append(out, guardrails.Target{
-				SpaceID: r.SpaceID, UnitSlug: r.UnitSlug, Value: "uncovered",
-				Cluster: r.Cluster, Namespace: r.Namespace,
-			})
-		}
-		return out, nil
-	},
 }

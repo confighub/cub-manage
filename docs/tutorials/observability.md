@@ -135,16 +135,15 @@ this tool.
 
 ## 6. Enforce with guardrails
 
-ServiceMonitor coverage is a cross-Unit property, so a plain `vet-cel` on a
-Service can't see whether a ServiceMonitor exists — it uses **annotate-then-validate**.
-`guardrails install` stands up the `Warn=true` `vet-cel` rule and wires in-scope
-Spaces; `guardrails annotate` writes the coverage finding onto uncovered Service
-Units for the rule to read:
+ServiceMonitor coverage depends on two Units: the Service, and the ServiceMonitor
+that scrapes it. `guardrails install` stands up a `Warn=true` `vet-cel` rule that
+reads the ServiceMonitors on each Service's cluster -- those of the Units released
+to the same Target -- and wires in-scope Spaces. Adding or changing a
+ServiceMonitor re-runs the rule on the Services that read it:
 
 ```console
 $ cub manage observability guardrails install -o table          # preview
 $ cub manage observability guardrails install --commit          # apply the pack
-$ cub manage observability guardrails annotate --commit --change-desc "Annotate uncovered services"
 $ cub manage guardrails status -o table           # Units now carrying warnings
 ```
 

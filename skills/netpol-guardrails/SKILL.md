@@ -1,17 +1,17 @@
 ---
 name: netpol-guardrails
-description: 'Install, inspect, and feed the NetworkPolicy guardrail policy pack in ConfigHub with the cub manage netpol CLI — making NetworkPolicy findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our network-policy rules", "block allow-all policies", "warn on egress to 0.0.0.0/0", "set up NetworkPolicy guardrails", "which Units have NetworkPolicy warnings?", "annotate the uncovered Units so they get flagged". Installs Warn=true vet-celexpr Triggers in the netpol guardrail group (annotate-then-validate for coverage); dry-run by default. Not for one-off checks (use netpol-findings) or fixing config (use netpol-fix).'
+description: 'Install and inspect the NetworkPolicy guardrail policy pack in ConfigHub with the cub manage netpol CLI — making NetworkPolicy findings enforced (advisory ValidationWarnings) instead of just reported. Use for "enforce our network-policy rules", "block allow-all policies", "warn on egress to 0.0.0.0/0", "set up NetworkPolicy guardrails", "which Units have NetworkPolicy warnings?", "flag workloads no policy selects", "require a default-deny". Installs Warn=true vet-cel Triggers in the netpol guardrail group, some reading the NetworkPolicies, workloads and Namespaces on the cluster; dry-run by default. Not for one-off checks (use netpol-findings) or fixing config (use netpol-fix).'
 phase: act
-allowed-tools: Bash(cub manage netpol --help) Bash(cub manage netpol * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage netpol findings *) Bash(cub manage netpol guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage netpol guardrails annotate *) Bash(cub manage guardrails exception list *)
+allowed-tools: Bash(cub manage netpol --help) Bash(cub manage netpol * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage netpol findings *) Bash(cub manage netpol guardrails install *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # netpol-guardrails
 
-Make NetworkPolicy findings **enforced**, not advisory. Installs a pack of validation policies (defined once in a policy Space, enforced in each Space that opts into the `netpol` group) and the annotate-then-validate loop that turns a workload no ingress policy selects into a ValidationWarning.
+Make NetworkPolicy findings **enforced**, not advisory. Installs a pack of validation policies, defined once in a policy Space and enforced in each Space that opts into the `netpol` group, including those that read the cluster's other resources: a workload no ingress policy selects, a policy that selects nothing, a namespace with no default-deny, and a flow one end allows and the other drops.
 
 ## Why this matters
 
-The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. So enforcement is two-sided: per-Unit shape rules are pure `vet-celexpr` Triggers; the set-aware coverage check uses **annotate-then-validate** — `guardrails annotate` writes a `netpol.confighub.com/ingress-coverage` annotation onto each workload Unit no ingress NetworkPolicy selects, and an installed Trigger reads it and raises a warning. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
+The manager itself cannot set ValidationWarnings/ValidationErrors — only a failed validating **Trigger** can. The shape rules check one NetworkPolicy. The rules about the cluster read the NetworkPolicies, workloads and Namespaces of the Units released to the same Target as the Space, which each Space selects for itself; a change to one of those Units re-runs them on the Units that read it. A Unit with no Target is on no known cluster, so they pass it, and the coverage and default-deny rules pass the Units of a cluster whose Target says nothing enforces NetworkPolicy. Triggers are created with `Warn=true` (advisory ValidationWarnings, never blocking), so installing on an existing fleet blocks no one.
 
 ## The pack
 
@@ -22,14 +22,17 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
 | `netpol-no-open-egress` | egress rules name destinations or ports (one with neither allows everything) |
 | `netpol-no-metadata-egress` | no egress that reaches the cloud metadata IP `169.254.169.254`: an ipBlock containing it without excepting it, or a rule with no `to` that allows TCP 80 (fix: the `netpol-except-metadata` profile) |
 | `netpol-egress-allows-dns` | a policy that isolates egress and allows some must allow DNS (UDP 53). Policies add up, so where a separate policy allows DNS, except this one; `netpol findings` (`egress-blocks-dns`) checks the union |
-| `netpol-ingress-coverage` | warns while a `netpol.confighub.com/ingress-coverage` annotation is present: a workload no ingress NetworkPolicy selects |
+| `netpol-ingress-coverage` | a workload has a NetworkPolicy isolating its ingress |
+| `netpol-selects-pods` | a policy's podSelector, and each podSelector peer of its rules, selects some workload in its namespace (a renamed or misspelled label) |
+| `netpol-default-deny` | a Namespace holding workloads has a policy denying ingress by default (fix: `cub manage netpol default-deny <namespace>`) |
+| `netpol-allowed-at-both-ends` | a flow a rule allows is not dropped at the other end, by policies isolating the other direction there |
 
 ## When to use
 
 - "Enforce our NetworkPolicy rules." / "set up NetworkPolicy guardrails."
 - "Block / warn on allow-all policies / egress to 0.0.0.0/0 / egress to the metadata IP."
 - "Which Units have NetworkPolicy warnings or gates?" → `cub manage guardrails status`.
-- "Flag the workloads no ingress policy selects." → `guardrails annotate`.
+- "Flag the workloads no ingress policy selects." → the `install`ed `netpol-ingress-coverage` rule.
 
 ## Do not load for
 
@@ -53,16 +56,11 @@ The manager itself cannot set ValidationWarnings/ValidationErrors — only a fai
    cub manage netpol guardrails install --where-space "Slug LIKE 'apptique-%'" --commit
    ```
    Spaces with a pre-existing custom `WhereTrigger` are skipped (not clobbered) and reported; add the `netpol` group to their `WhereTrigger` deliberately (see **triggers-and-applygates**).
-3. **Annotate** the workloads no ingress policy selects, so the coverage Trigger flags them (dry-run by default). Clusters whose Target says nothing enforces NetworkPolicy are skipped, since no policy can cover a workload there:
-   ```bash
-   cub manage netpol guardrails annotate --commit --change-desc "Flag workloads no ingress policy selects. User prompt: ..."
-   ```
-   Re-run after adding policies — a covered workload's annotation is cleared.
-4. **Inspect** what's flagged:
+3. **Inspect** what's flagged:
    ```bash
    cub manage guardrails status -o table
    ```
-5. **Promote a rule to blocking** later (the manager never does this silently): `cub manage guardrails update <slug> --enforce --commit`.
+4. **Promote a rule to blocking** later (the manager never does this silently): `cub manage guardrails update <slug> --enforce --commit`.
 
 ## Exceptions
 
@@ -84,9 +82,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install/status/annotate` and read commands; `annotate` passes `--change-desc`. Not allowed: bypassing gates, `kubectl`, publishing a Release.
+Allowed: `guardrails install/status` and read commands. Not allowed: bypassing gates, `kubectl`, publishing a Release.
 
 ## References
 
-- `cub manage netpol guardrails install --help`, `... status --help`, `... annotate --help`.
+- `cub manage netpol guardrails install --help`, `... status --help`.
 - Companion skills: **netpol-findings**, **netpol-fix**, **triggers-and-applygates**.

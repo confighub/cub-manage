@@ -5,11 +5,11 @@ package cli
 
 // This tool's guardrail pack. The mechanism -- policy Space, Triggers, the group
 // selection on each in-scope Space, and reporting the Units a Trigger marked
-// -- is managerkit/guardrails'. What is this tool's is the rules, and which
-// Units the annotate command has something to say about.
+// -- is managerkit/guardrails'. What is this tool's is the rules.
 
 import (
 	"context"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -19,27 +19,45 @@ import (
 	"github.com/confighub/cub-manage/internal/celrule"
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/observability"
-	"github.com/confighub/cub-manage/internal/observability/snapshot"
 )
 
-// coverageAnnotation is written by `guardrails annotate` onto each metrics-Service
-// Unit no ServiceMonitor selects, and read by the coverage rule (annotate-then-validate --
-// coverage is a cross-Unit property a per-Unit CEL check cannot compute).
-const coverageAnnotation = "observability.confighub.com/servicemonitor-coverage"
+// otherMonitors are the ServiceMonitors on a Service's cluster, which the coverage
+// check reads.
+var otherMonitors = guardrails.OtherData{Key: "servicemonitors", ResourceTypes: []string{"monitoring.coreos.com/v1/ServiceMonitor"}}
 
-var celNoCoverageFinding = celrule.AnnotationFailures(coverageAnnotation,
-	"no ServiceMonitor scrapes this metrics Service, as guardrails annotate found")
+// exposesMetrics: the Service r looks like a metrics scrape target, by a port named
+// like a metrics port or a prometheus.io/scrape: "true" annotation.
+var exposesMetrics = "(r.?metadata.?annotations.orValue(null) != null && " +
+	"r.metadata.annotations[?'prometheus.io/scrape'].orValue('') == 'true' || " +
+	"(r.?spec.?ports.orValue(null) != null ? r.spec.ports : []).exists(p, " +
+	"p.?name.orValue('').lowerAscii() in ['" + strings.Join(observability.MetricsPortNames(), "', '") + "']))"
+
+// monitors: the ServiceMonitor m selects the Service r: its namespaceSelector names r's
+// namespace -- any, a list, or by default its own -- and its selector selects r's labels.
+// A missing selector selects every Service, as the analysis reads it.
+var monitors = "(m.?spec.?namespaceSelector.?any.orValue(false) == true || " +
+	"(size(m.?spec.?namespaceSelector.?matchNames.orValue([])) > 0 ? " +
+	celrule.NamespaceOf("r") + " in m.spec.namespaceSelector.matchNames : " +
+	celrule.NamespaceOf("m") + " == " + celrule.NamespaceOf("r") + ")) && " +
+	"selects(m.?spec.?selector.orValue(null) != null ? m.spec.selector : {}, r.?metadata.?labels.orValue({}))"
+
+// celServiceMonitorCoverage fails a metrics Service that no ServiceMonitor on its
+// cluster selects. A Unit with no Target is on no known cluster, so it passes.
+var celServiceMonitorCoverage = celrule.When(
+	celrule.OnACluster+" && "+exposesMetrics+" && !"+celrule.Other(otherMonitors.Key)+".exists(m, "+monitors+")",
+	"["+celrule.Failure("'metadata.labels'", "r.?metadata.?labels",
+		"'no ServiceMonitor selects this metrics Service in namespace ' + "+celrule.NamespaceOf("r"))+"]")
 
 var Pack = guardrails.Pack{
 	Group: "observability",
 	Checks: []guardrails.Check{
 		{Control: "CH-1301", Name: "observability-servicemonitor-coverage", Rule: "observability-servicemonitor-coverage",
 			DisplayName: "Metrics Services have a ServiceMonitor",
-			Description: "Warns while an observability.confighub.com/servicemonitor-coverage annotation is present (set by `cub manage observability guardrails annotate`) — a metrics Service with no ServiceMonitor. Fix: `cub manage observability ensure-servicemonitor`, then re-run annotate.",
+			Description: "Warns on a Service exposing metrics -- a port named metrics, http-metrics, monitoring, prometheus or telemetry, or a prometheus.io/scrape: \"true\" annotation -- that no ServiceMonitor on its cluster selects, so nothing scrapes it. Not checked for a Unit with no Target. Fix: `cub manage observability ensure-servicemonitor`.",
 			Engine:      guardrails.EngineCEL, Priority: guardrails.PriorityLow,
-			Fix: "cub manage observability ensure-servicemonitor",
-			// guardrails annotate writes the finding on each resource of the Unit.
-			Failures: celNoCoverageFinding},
+			Fix:           "cub manage observability ensure-servicemonitor",
+			ResourceTypes: []string{"v1/Service"}, OtherData: []guardrails.OtherData{otherMonitors},
+			Failures: celServiceMonitorCoverage},
 	},
 }
 
@@ -52,56 +70,19 @@ func newGuardrailsCmd() *cobra.Command {
 		Long: `guardrails manages the observability guardrail pack, defined once in a policy
 Space and enforced in each Space that opts into the group:
 
-  observability-servicemonitor-coverage   warns while a Service is annotated as
-                                          having no ServiceMonitor (a metrics
-                                          Service that isn't scraped)
+  observability-servicemonitor-coverage   a Service exposing metrics has a
+                                          ServiceMonitor that scrapes it
 
-ServiceMonitor coverage is a cross-Unit property (the ServiceMonitor and the
-Service live in separate Units), so a per-Unit vet-cel can't compute it directly.
-This realizes annotate-then-validate: 'guardrails annotate' writes the coverage
-finding onto each uncovered metrics-Service Unit, and this Trigger turns it into
-an advisory ValidationWarning. Triggers are Warn=true; promote to blocking with
+The coverage rule reads the ServiceMonitors on the Service's cluster: those of
+the Units released to the same Target as the Space, which each Space selects
+for itself. A change to a ServiceMonitor re-runs the rule on the Units that read
+it. A Unit with no Target is on no known cluster, so it passes. Triggers are
+Warn=true; promote to blocking with
   cub trigger update observability-servicemonitor-coverage --space <policy-space> --unwarn
 
 Except one resource from a rule with 'cub manage guardrails exception add';
 'cub manage guardrails exception list' shows what is excepted, and why.`,
 	}
-	cmd.AddCommand(Pack.InstallCmd(preflight), Pack.AnnotateCmd(preflight, annotateSpec))
+	cmd.AddCommand(Pack.InstallCmd(preflight))
 	return cmd
-}
-
-// annotateSpec is the observability half of `guardrails annotate`: which Service
-// Units nothing scrapes, and what to write on them. The rest of the command is
-// managerkit/guardrails'.
-var annotateSpec = guardrails.AnnotateSpec{
-	Key:   coverageAnnotation,
-	Noun:  "Service Unit",
-	Short: "Annotate each metrics-Service Unit no ServiceMonitor selects",
-	Long: `annotate runs the coverage analysis and writes an observability.confighub.com/
-servicemonitor-coverage annotation onto each metrics-exposing Service Unit that no ServiceMonitor
-selects. Paired with the observability-servicemonitor-coverage rule from 'guardrails install',
-this turns the cross-Unit coverage finding into an advisory ValidationWarning.
-
-Re-run after adding ServiceMonitors. Dry run unless --commit --change-desc.`,
-	Targets: func(ctx context.Context, c *cubapi.Client, where, cluster string) ([]guardrails.Target, error) {
-		snap, err := snapshot.Load(ctx, c, where)
-		if err != nil {
-			return nil, err
-		}
-		var out []guardrails.Target
-		for _, r := range observability.AnalyzeCoverage(snap.Clusters) {
-			if r.Covered || r.SpaceID == "" || r.UnitSlug == "" {
-				continue
-			}
-			if cluster != "" && r.Cluster != cluster {
-				continue
-			}
-			out = append(out, guardrails.Target{
-				SpaceID: r.SpaceID, UnitSlug: r.UnitSlug, Value: "uncovered",
-				Cluster: r.Cluster, Namespace: r.Namespace,
-				Detail: "service: " + r.Service,
-			})
-		}
-		return out, nil
-	},
 }

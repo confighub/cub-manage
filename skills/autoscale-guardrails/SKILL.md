@@ -18,7 +18,7 @@ Turn the autoscaling anti-patterns into **enforcement** — advisory ValidationW
 
 ## Why this matters
 
-Both rules are plain **per-resource** checks — a single Unit answers each, so no annotate-then-validate is needed. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them — those are reported with the reason.
+Both rules are plain **per-resource** checks — a single resource answers each. The manager can't set warnings directly; only a failed Trigger can. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them — those are reported with the reason.
 
 ## When to use
 

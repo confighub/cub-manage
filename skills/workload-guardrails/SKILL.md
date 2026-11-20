@@ -1,21 +1,20 @@
 ---
 name: workload-guardrails
-description: 'Install and operate the workload-readiness enforcement pack with the cub manage workload CLI — a common Space of Warn=true vet-cel Triggers (containers set a memory limit, run as non-root, have a read-only root filesystem, set terminationMessagePolicy, run database images in a StatefulSet), a vet-images Trigger (no untagged or latest images), plus an annotate-then-validate Trigger for cross-Unit PodDisruptionBudget coverage, added to in-scope Spaces as the workload guardrail group. guardrails install (dry-run by default), status (Units with ValidationWarnings/Gates), annotate (write the PDB-coverage finding onto uncovered workloads). Use for "enforce workload readiness", "block workloads with no memory limit", "require a read-only root filesystem", "warn on latest images", "flag databases run as Deployments", "warn on workloads with no PDB", "which workloads are flagged?". Not for read-only scoring (use workload-audit / workload-findings) or fixing workloads (use workload-harden / workload-fleet).'
+description: 'Install and operate the workload-readiness enforcement pack with the cub manage workload CLI — a common Space of Warn=true vet-cel Triggers (containers set a memory limit, run as non-root, have a read-only root filesystem, set terminationMessagePolicy, run database images in a StatefulSet), a vet-images Trigger (no untagged or latest images), plus a Trigger for PodDisruptionBudget coverage that reads the budgets on the cluster, added to in-scope Spaces as the workload guardrail group. guardrails install (dry-run by default), status (Units with ValidationWarnings/Gates). Use for "enforce workload readiness", "block workloads with no memory limit", "require a read-only root filesystem", "warn on latest images", "flag databases run as Deployments", "warn on workloads with no PDB", "which workloads are flagged?". Not for read-only scoring (use workload-audit / workload-findings) or fixing workloads (use workload-harden / workload-fleet).'
 phase: act
 allowed-tools: Bash(cub manage workload --help) Bash(cub manage workload * --help) Bash(cub auth status) Bash(cub manage preflight) Bash(cub manage workload guardrails) Bash(cub manage workload guardrails *) Bash(cub manage guardrails status *) Bash(cub manage guardrails exception list *)
 ---
 
 # workload-guardrails
 
-Turn workload-readiness policy into **enforcement** — advisory ValidationWarnings (promotable to blocking ValidationErrors) that fire in the normal apply pipeline. Three subcommands:
+Turn workload-readiness policy into **enforcement** — advisory ValidationWarnings (promotable to blocking ValidationErrors) that fire in the normal apply pipeline. Two subcommands:
 
 - **`guardrails install`** — creates the `common` Space, seven `Warn=true` Triggers, labeled `Pack: workload`, then adds the `workload` group to each in-scope Space's `WhereTrigger`. **Dry-run by default**; re-run with `--commit`.
 - **`cub manage guardrails status`** — lists Units carrying workload-readiness ValidationWarnings or ValidationErrors.
-- **`guardrails annotate`** — writes the `workload.confighub.com/pdb-coverage` finding onto each uncovered multi-replica workload Unit (the producing half of annotate-then-validate). Dry-run unless `--commit --change-desc`.
 
 ## Why this matters
 
-The manager can't set ValidationWarnings directly — only a failed Trigger can. The pack's rules are grouped by area — Pod Security, hardening, resources, reliability and images — and `cub manage workload guardrails --help` lists them all; `cub manage guardrails status --by-rule` shows where each stands. Beyond the rules described here, it checks container runtime sockets and sensitive host paths, writable hostPath mounts, NET_RAW, group 0, the default ServiceAccount, port 22, CPU and memory requests, emptyDir size limits, readiness probes, identical liveness and readiness probes, PodDisruptionBudgets' unhealthy pod eviction, replicas in prod Spaces, rolling updates, bare Pods, Job cleanup, allowed registries (given with `--param allowed-registries.registries=...`) and frozen registries; `high-uid`, `ephemeral-storage`, `memory-request-equals-limit`, `liveness-probe`, `priority-class` and `image-digest` are optional (`--check` or `--all`). Six of the rules are plain **per-resource** checks (a single Unit answers them): `workload-has-limits`, `workload-runs-nonroot`, `workload-readonly-root-filesystem` (each container sets `securityContext.readOnlyRootFilesystem: true`), `workload-termination-message-policy` and `workload-database-statefulset` (a Deployment or ReplicaSet running a database image such as postgres, mysql or mongo) are `vet-cel`, and `workload-explicit-image-tag` is `vet-images`, warning on an image with no image tag or digest, or the `latest` image tag. Two more run `vet-pod-security-standard` on Pods and every resource with a pod template: `workload-pod-security-baseline` (11 checks, such as `privileged` and `host-path-volumes`) and `workload-pod-security-restricted` (5 checks, such as `allow-privilege-escalation` and `run-as-user`; `run-as-non-root` is optional, since `workload-runs-nonroot` checks the same; the rule skips the resources excepted from `workload-runs-nonroot`, which cannot meet restricted). Each finding names the Pod Security check it fails, and `cub manage guardrails update <rule> --separate <check>` moves one check into a rule of its own, to enforce or except it apart from its level. **`workload-pdb-coverage`** is the one property `vet-cel` can't see under one-resource-per-Unit — whether a *matching* PDB exists in another Unit — so it uses **annotate-then-validate**: `annotate` computes the cross-Unit coverage finding and stamps it on the workload Unit, and the Trigger turns that annotation into a warning. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
+The manager can't set ValidationWarnings directly — only a failed Trigger can. The pack's rules are grouped by area — Pod Security, hardening, resources, reliability and images — and `cub manage workload guardrails --help` lists them all; `cub manage guardrails status --by-rule` shows where each stands. Beyond the rules described here, it checks container runtime sockets and sensitive host paths, writable hostPath mounts, NET_RAW, group 0, the default ServiceAccount, port 22, CPU and memory requests, emptyDir size limits, readiness probes, identical liveness and readiness probes, PodDisruptionBudgets' unhealthy pod eviction, replicas in prod Spaces, rolling updates, bare Pods, Job cleanup, allowed registries (given with `--param allowed-registries.registries=...`) and frozen registries; `high-uid`, `ephemeral-storage`, `memory-request-equals-limit`, `liveness-probe`, `priority-class` and `image-digest` are optional (`--check` or `--all`). Six of the rules are plain **per-resource** checks (a single Unit answers them): `workload-has-limits`, `workload-runs-nonroot`, `workload-readonly-root-filesystem` (each container sets `securityContext.readOnlyRootFilesystem: true`), `workload-termination-message-policy` and `workload-database-statefulset` (a Deployment or ReplicaSet running a database image such as postgres, mysql or mongo) are `vet-cel`, and `workload-explicit-image-tag` is `vet-images`, warning on an image with no image tag or digest, or the `latest` image tag. Two more run `vet-pod-security-standard` on Pods and every resource with a pod template: `workload-pod-security-baseline` (11 checks, such as `privileged` and `host-path-volumes`) and `workload-pod-security-restricted` (5 checks, such as `allow-privilege-escalation` and `run-as-user`; `run-as-non-root` is optional, since `workload-runs-nonroot` checks the same; the rule skips the resources excepted from `workload-runs-nonroot`, which cannot meet restricted). Each finding names the Pod Security check it fails, and `cub manage guardrails update <rule> --separate <check>` moves one check into a rule of its own, to enforce or except it apart from its level. **`workload-pdb-coverage`** depends on another Unit — whether a *matching* PDB exists there — so its Trigger reads the PodDisruptionBudgets of the Units released to the same Target, which each Space selects for itself; adding a budget re-runs it on the workloads that read it. `install` is conservative: it skips Spaces that already select Triggers their own way (their own Triggers, a custom WhereTrigger, or a TriggerFilterID) rather than clobbering them.
 
 ## When to use
 
@@ -24,7 +23,7 @@ The manager can't set ValidationWarnings directly — only a failed Trigger can.
 - "Require a read-only root filesystem." → the `install`ed `workload-readonly-root-filesystem` Trigger; a container that must write to its root filesystem gets an emptyDir where it writes, or an exception.
 - "Warn on images with no image tag or the `latest` image tag." → the `install`ed vet-images Trigger.
 - "Flag databases deployed as a Deployment instead of a StatefulSet." → the `install`ed `workload-database-statefulset` Trigger.
-- "Warn on workloads with no PDB." → `guardrails install` + `guardrails annotate --commit`.
+- "Warn on workloads with no PDB." → the `install`ed `workload-pdb-coverage` Trigger, which reads the PodDisruptionBudgets of the Units released to the same Target. A Unit with no Target passes it.
 - "Which workloads are flagged?" → `cub manage guardrails status`.
 
 ## Do not load for
@@ -50,14 +49,8 @@ The manager can't set ValidationWarnings directly — only a failed Trigger can.
    cub manage workload guardrails install --commit
    ```
    Triggers are `Warn=true` (advisory). Promote one to blocking later with `cub manage guardrails update <slug> --enforce --commit`.
-3. **Feed the annotate-then-validate rule** (for PDB coverage):
-   ```bash
-   cub manage workload guardrails annotate                       # dry-run: which workloads would be annotated
-   cub manage workload guardrails annotate --commit --change-desc "Annotate uncovered workloads. User prompt: ..."
-   ```
-   Re-run after PDBs are added so the annotation (a cached finding) stays fresh.
-4. **Check** what's flagged: `cub manage guardrails status -o table`.
-5. **Fix** flagged workloads via **workload-harden** / **workload-fleet**, then re-check.
+3. **Check** what's flagged: `cub manage guardrails status -o table`.
+4. **Fix** flagged workloads via **workload-harden** / **workload-fleet**, then re-check.
 
 ## Exceptions
 
@@ -78,9 +71,9 @@ That rule's Trigger skips the resources carrying it; the other rules still check
 
 ## Tool boundary
 
-Allowed: `guardrails install` (dry-run unless `--commit`), `status`, `annotate` (dry-run unless `--commit --change-desc`). Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged workloads is **workload-harden** / **workload-fleet**.
+Allowed: `guardrails install` (dry-run unless `--commit`), `status`. Not allowed: bypassing gates, `kubectl` mutations, publishing a Release. Fixing flagged workloads is **workload-harden** / **workload-fleet**.
 
 ## References
 
-- `cub manage workload guardrails --help`, `… install --help`, `… status --help`, `… annotate --help`.
+- `cub manage workload guardrails --help`, `… install --help`, `… status --help`.
 - Companion skills: **workload-harden**, **workload-fleet**, **workload-availability**, `triggers-and-applygates`.
