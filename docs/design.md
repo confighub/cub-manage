@@ -323,7 +323,13 @@ authorization: verb, resource and API-group wildcards, subresources, `resourceNa
 `nonResourceURLs`, RoleBindings to ClusterRoles, namespace scoping, and ClusterRole aggregation to
 a fixed point.
 
-Analyses: `who-can <verb> <resource>` and its inverse `access <subject>`. Findings: wildcard
+Analyses: `who-can <verb> <resource>` and its inverse `access <subject>`. These two run in the
+server rather than on a snapshot, as a ConfigHub reduce over each cluster:
+`internal/rbac/reduce/records.star` turns each Role, ClusterRole and binding into a record on the
+Unit that holds it, and `whocan.star` or `access.star` runs once per cluster on its records, so only
+the grants come back. A cluster is a Target, keyed by ID, so two Targets with one slug in different
+Spaces stay apart. The programs mirror the engine, and their tests run them through the function
+executor against it. Findings: wildcard
 grants, privilege-escalation verbs (`escalate`, `bind`, `impersonate`), risky grants,
 cluster-admin bindings, bindings to roles that don't exist, and ServiceAccounts nothing binds.
 
