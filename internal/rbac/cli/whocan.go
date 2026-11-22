@@ -16,19 +16,11 @@ import (
 	"github.com/confighub/cub-manage/internal/cub"
 	"github.com/confighub/cub-manage/internal/kit"
 	"github.com/confighub/cub-manage/internal/rbac"
-	"github.com/confighub/cub-manage/internal/rbac/snapshot"
+	"github.com/confighub/cub-manage/internal/rbac/reduce"
 )
 
-type grantRow struct {
-	Cluster     string `json:"cluster"`
-	Subject     string `json:"subject"`
-	Scope       string `json:"scope,omitempty"` // "" = cluster-wide
-	RoleRef     string `json:"roleRef"`
-	RoleRefKind string `json:"roleRefKind"`
-	Builtin     bool   `json:"builtin,omitempty"`
-	Binding     string `json:"binding"`
-	Unit        string `json:"unit"`
-}
+// grantRow is a who-can grant, as the server's reduce returns it.
+type grantRow = reduce.Grant
 
 func newWhoCanCmd() *cobra.Command {
 	var output, apiGroup, cluster, namespace, name string
@@ -59,10 +51,6 @@ bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
 			if err != nil {
 				return err
 			}
-			snap, err := snapshot.Load(cmd.Context(), client, where)
-			if err != nil {
-				return err
-			}
 			query := rbac.AccessQuery{
 				Verb:      args[0],
 				Resource:  args[1],
@@ -70,7 +58,13 @@ bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
 				Namespace: namespace,
 				Name:      name,
 			}
-			rows := grantRows(rbac.WhoCan(onlyCluster(snap.Clusters, cluster), query))
+			// The server reduces each cluster's roles and bindings to the grants, so only those come
+			// back, not every RBAC resource in the fleet.
+			grants, err := reduce.WhoCan(cmd.Context(), client, where, cluster, query)
+			if err != nil {
+				return err
+			}
+			rows := sortGrantRows(grants)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
 				return err
 			}
@@ -87,21 +81,9 @@ bindings to admin/edit/view/system:* are reported by 'findings', not here.`,
 	return cmd
 }
 
-func grantRows(grants []rbac.Grant) []grantRow {
-	rows := make([]grantRow, 0, len(grants))
-	for _, g := range grants {
-		rows = append(rows, grantRow{
-			Cluster:     g.Cluster,
-			Subject:     g.SubjectKey,
-			Scope:       g.Scope,
-			RoleRef:     g.RoleRefName,
-			RoleRefKind: g.Binding.RoleRef.Kind,
-			Builtin:     g.ViaBuiltinRole,
-			Binding:     g.Binding.Name,
-			Unit:        g.Binding.Origin.UnitSlug,
-		})
-	}
-	sort.Slice(rows, func(i, j int) bool {
+// sortGrantRows orders grants by cluster, then subject.
+func sortGrantRows(rows []grantRow) []grantRow {
+	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Cluster != rows[j].Cluster {
 			return rows[i].Cluster < rows[j].Cluster
 		}
@@ -130,15 +112,8 @@ func printGrantTable(cmd *cobra.Command, rows []grantRow) {
 
 // --- access (inverse query) ---
 
-type subjectGrantRow struct {
-	Cluster     string `json:"cluster"`
-	RoleRef     string `json:"roleRef"`
-	RoleRefKind string `json:"roleRefKind"`
-	Resolved    bool   `json:"resolved"` // whether the role exists in the snapshot
-	Scope       string `json:"scope,omitempty"`
-	Binding     string `json:"binding"`
-	Unit        string `json:"unit"`
-}
+// subjectGrantRow is a binding naming the subject of access, as the server's reduce returns it.
+type subjectGrantRow = reduce.SubjectGrant
 
 func newAccessCmd() *cobra.Command {
 	var output, cluster, namespace string
@@ -169,11 +144,11 @@ in a namespace: its own and the cluster-wide ones.`,
 			if err != nil {
 				return err
 			}
-			snap, err := snapshot.Load(cmd.Context(), client, where)
+			grants, err := reduce.Access(cmd.Context(), client, where, cluster, subject)
 			if err != nil {
 				return err
 			}
-			rows := subjectGrantRows(rbac.SubjectAccess(onlyCluster(snap.Clusters, cluster), subject), namespace)
+			rows := subjectGrantRows(grants, namespace)
 			if done, err := managerkit.Render(cmd.OutOrStdout(), output, rows); done || err != nil {
 				return err
 			}
@@ -186,18 +161,6 @@ in a namespace: its own and the cluster-wide ones.`,
 	kit.AddClusterFlag(cmd, &cluster)
 	cmd.Flags().StringVar(&namespace, "namespace", "", "only grants effective in this namespace: its own and the cluster-wide ones")
 	return cmd
-}
-
-// onlyCluster narrows the clusters to the one named, or keeps them all when none
-// is.
-func onlyCluster(clusters map[string]*rbac.ClusterRbac, name string) map[string]*rbac.ClusterRbac {
-	if name == "" {
-		return clusters
-	}
-	if c, ok := clusters[name]; ok {
-		return map[string]*rbac.ClusterRbac{name: c}
-	}
-	return nil
 }
 
 // parseSubjectRef parses "Kind:Name" (or "ServiceAccount:ns/name").
@@ -236,25 +199,17 @@ func normalizeSubjectKind(s string) (string, error) {
 	}
 }
 
-// subjectGrantRows are the grants effective in namespace, or all of them when no
-// namespace is named. A cluster-wide grant is effective in every namespace.
-func subjectGrantRows(grants []rbac.SubjectGrant, namespace string) []subjectGrantRow {
+// subjectGrantRows are the grants effective in namespace, or all of them when no namespace is named,
+// ordered by cluster, then role. A cluster-wide grant is effective in every namespace.
+func subjectGrantRows(grants []subjectGrantRow, namespace string) []subjectGrantRow {
 	rows := make([]subjectGrantRow, 0, len(grants))
 	for _, g := range grants {
 		if namespace != "" && g.Scope != "" && g.Scope != namespace {
 			continue
 		}
-		rows = append(rows, subjectGrantRow{
-			Cluster:     g.Cluster,
-			RoleRef:     g.RoleRefName,
-			RoleRefKind: g.Binding.RoleRef.Kind,
-			Resolved:    g.Role != nil,
-			Scope:       g.Scope,
-			Binding:     g.Binding.Name,
-			Unit:        g.Binding.Origin.UnitSlug,
-		})
+		rows = append(rows, g)
 	}
-	sort.Slice(rows, func(i, j int) bool {
+	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Cluster != rows[j].Cluster {
 			return rows[i].Cluster < rows[j].Cluster
 		}
